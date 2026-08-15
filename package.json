@@ -63,5 +63,22 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "typescript": "^5.6.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/a792883583/dsh-cron-panel.git"
+  },
+  "homepage": "https://github.com/a792883583/dsh-cron-panel",
+  "bugs": {
+    "url": "https://github.com/a792883583/dsh-cron-panel/issues"
+  },
+  "keywords": [
+    "dsh",
+    "plugin",
+    "cron",
+    "crontab",
+    "scheduler",
+    "tasks",
+    "schedule"
+  ]
 }
