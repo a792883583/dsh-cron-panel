@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>dsh-cron-panel preview</title>
+<style>
+  body { margin:0; padding:0; background:#ffffff; font-family:-apple-system,BlinkMacSystemFont,
+    "Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; }
+  body[data-view="panel"] #view-panel { display:block; }
+  body[data-view="detail"] #view-detail { display:block; }
+  #view-panel, #view-detail { display:none; }
+
+  /* ===== 侧边栏模拟（工作区 → 定时任务面板 → 设置） ===== */
+  .rail { width:230px; background:#f6f8fa; border-right:1px solid rgba(128,128,128,0.25);
+    display:flex; flex-direction:column; min-height:520px; }
+  .rail .ws { padding:10px 12px; font-size:12px; color:#6e7781; }
+  .rail .ws b { color:#24292f; }
+
+  .dsh-cron-panel { --cp-fg:#24292f; --cp-muted:#6e7781; --cp-border:rgba(128,128,128,0.25);
+    --cp-hover:rgba(0,0,0,0.05); --cp-bg:#f6f8fa; --cp-accent:#1976d2; --cp-danger:#cf222e;
+    color:var(--cp-fg); font-size:12px; }
+  .dsh-cron-head { display:flex; align-items:center; gap:4px; padding:8px 10px 6px;
+    font-weight:600; font-size:12px; }
+  .dsh-cron-head .spacer { flex:1; }
+  .dsh-cron-add { border:none; background:transparent; color:var(--cp-muted); cursor:pointer;
+    width:22px; height:22px; border-radius:6px; display:flex; align-items:center;
+    justify-content:center; padding:0; }
+  .dsh-cron-section { padding:6px 10px 2px; color:var(--cp-muted); font-size:11px;
+    font-weight:600; text-transform:uppercase; letter-spacing:0.4px; }
+  .dsh-cron-item { display:flex; align-items:center; gap:6px; padding:5px 10px; cursor:pointer;
+    border-radius:6px; margin:0 4px; }
+  .dsh-cron-item .expr { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
+    color:var(--cp-accent); white-space:nowrap; flex:none; }
+  .dsh-cron-item .cmd { flex:1; min-width:0; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; color:var(--cp-fg); }
+  .dsh-cron-item .off { opacity:0.5; text-decoration:line-through; }
+  .dsh-cron-hint { padding:6px 10px 8px; color:var(--cp-muted); line-height:1.6; }
+  .dsh-cron-hint b { color:var(--cp-fg); }
+  .rail .settings { margin-top:auto; padding:10px 12px; font-size:12px; color:#6e7781;
+    border-top:1px solid rgba(128,128,128,0.25); }
+
+  /* ===== 全屏详情覆盖层 ===== */
+  .overlay { position:relative; width:640px; height:430px; background:rgba(0,0,0,0.45);
+    display:flex; align-items:center; justify-content:center; }
+  .dsh-cron-card { width:560px; background:#ffffff; border:1px solid rgba(128,128,128,0.25);
+    border-radius:12px; box-shadow:0 16px 48px rgba(0,0,0,0.3); padding:18px 20px;
+    --cp-fg:#24292f; --cp-muted:#6e7781; --cp-border:rgba(128,128,128,0.25);
+    --cp-accent:#1976d2; --cp-danger:#cf222e; --cp-field:#ffffff; font-size:12px; }
+  .dsh-cron-card-head { display:flex; align-items:center; gap:8px; margin-bottom:14px; }
+  .dsh-cron-card-head .title { flex:1; font-weight:600; font-size:14px; color:var(--cp-fg); }
+  .dsh-cron-close { border:none; background:transparent; color:var(--cp-muted); cursor:pointer;
+    width:28px; height:28px; border-radius:8px; display:flex; align-items:center;
+    justify-content:center; padding:0; }
+  .dsh-cron-field { margin-bottom:10px; }
+  .dsh-cron-field label { display:block; font-size:12px; color:var(--cp-muted); margin-bottom:4px; }
+  .dsh-cron-input { width:100%; padding:6px 10px; font-size:13px; color:var(--cp-fg);
+    background:var(--cp-field); border:1px solid var(--cp-border); border-radius:8px; outline:none; }
+  .dsh-cron-input.mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .dsh-cron-logbox { max-height:110px; overflow:hidden; border:1px solid var(--cp-border);
+    border-radius:8px; background:var(--cp-field); margin-top:4px; }
+  .dsh-cron-log-pre { margin:0; padding:8px 10px; font-size:11px; line-height:1.5; color:var(--cp-fg);
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; }
+  .dsh-cron-actions { display:flex; gap:8px; margin-top:14px; align-items:center; }
+  .dsh-cron-btn { border:1px solid var(--cp-border); background:transparent; color:var(--cp-fg);
+    border-radius:8px; padding:6px 14px; font-size:13px; cursor:pointer; }
+  .dsh-cron-btn.primary { background:var(--cp-accent); border-color:var(--cp-accent); color:#fff; }
+  .dsh-cron-btn.danger { color:var(--cp-danger); }
+</style>
+</head>
+<body data-view="panel">
+<script>
+  document.body.dataset.view = new URLSearchParams(location.search).get('v') || 'panel'
+</script>
+
+<div id="view-panel">
+  <div class="rail">
+    <div class="ws"><b>工作区</b><br>dsh-git-panel</div>
+
+    <div class="dsh-cron-panel">
+      <div class="dsh-cron-head">
+        <span>定时任务</span>
+        <span class="spacer"></span>
+        <span class="dsh-cron-add">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"
+            strokeWidth="1.6" strokeLinecap="round"><path d="M8 3v10M3 8h10"/></svg>
+        </span>
+        <span class="dsh-cron-add">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"
+            strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l4 4 4-4"/></svg>
+        </span>
+      </div>
+
+      <div class="dsh-cron-section">DSH 定时任务</div>
+      <div class="dsh-cron-item">
+        <span class="expr">0 9 * * *</span>
+        <span class="cmd">每日站会提醒</span>
+      </div>
+      <div class="dsh-cron-item">
+        <span class="expr">*/30 * * * *</span>
+        <span class="cmd">git log 日报采集</span>
+      </div>
+      <div class="dsh-cron-item">
+        <span class="expr off">0 12 1 * *</span>
+        <span class="cmd off">月度报表生成（已停用）</span>
+      </div>
+
+      <div class="dsh-cron-section">系统定时任务</div>
+      <div class="dsh-cron-item">
+        <span class="expr">18 8 * * *</span>
+        <span class="cmd">checkin.js --force-breakfast</span>
+      </div>
+      <div class="dsh-cron-item">
+        <span class="expr">8 11 * * *</span>
+        <span class="cmd">checkin.js --force-lunch</span>
+      </div>
+      <div class="dsh-cron-item">
+        <span class="expr">30 10 * * *</span>
+        <span class="cmd">node index.js (metis-sender)</span>
+      </div>
+    </div>
+
+    <div class="settings">⚙ 设置</div>
+  </div>
+</div>
+
+<div id="view-detail">
+  <div class="overlay">
+    <div class="dsh-cron-card">
+      <div class="dsh-cron-card-head">
+        <span class="title">定时任务详情</span>
+        <span class="dsh-cron-close">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"
+            strokeWidth="1.6" strokeLinecap="round"><path d="M3 3l10 10M13 3L3 13"/></svg>
+        </span>
+      </div>
+
+      <div class="dsh-cron-field">
+        <label>描述</label>
+        <input class="dsh-cron-input" value="每日站会提醒" readonly />
+      </div>
+
+      <div class="dsh-cron-field">
+        <label>Cron 表达式</label>
+        <input class="dsh-cron-input mono" value="0 9 * * *" readonly />
+      </div>
+
+      <div class="dsh-cron-field">
+        <label>命令</label>
+        <input class="dsh-cron-input mono" value="/usr/local/bin/standup.sh" readonly />
+      </div>
+
+      <div class="dsh-cron-field">
+        <label>执行记录</label>
+        <div class="dsh-cron-logbox">
+          <pre class="dsh-cron-log-pre">[08-14 09:00:01] standup summary → #team-channel
+[08-13 09:00:02] standup summary → #team-channel
+[08-12 09:00:00] ⚠ retry (1): channel busy, retried in 30s
+[08-12 09:00:32] standup summary → #team-channel
+[08-11 09:00:01] standup summary → #team-channel</pre>
+        </div>
+      </div>
+
+      <div class="dsh-cron-actions">
+        <span class="dsh-cron-btn primary">保存</span>
+        <span class="dsh-cron-btn danger">删除</span>
+        <span class="dsh-cron-btn">取消</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

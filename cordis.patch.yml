@@ -1,0 +1,5 @@
+# dsh-cron-panel — DSH web GUI scheduled-tasks panel bundle.
+# Registered by `dsh plugin --profile web add link:<path>` (or npm once published).
+- insert:
+    - id: ui-cron-panel
+      name: 'dsh-cron-panel'
