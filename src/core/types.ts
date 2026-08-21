@@ -16,6 +16,8 @@ export interface CronEntry {
   managed: boolean
   /** 在 crontab 文本中的行号（标记行/调度行）。 */
   lines: number[]
+  /** 完成后主动通知（走 message-gateway 的 /gateway/push；未配置为 undefined）。 */
+  notify?: { platform: string; target: string } | null
 }
 
 /** crontab 解析视图。 */

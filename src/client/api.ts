@@ -31,11 +31,11 @@ export class CronPanelApi {
     return this.post('/cron-panel/list', {})
   }
 
-  create(input: { description: string; expr: string; command: string; enabled: boolean }): Promise<Envelope<OpResult>> {
+  create(input: { description: string; expr: string; command: string; enabled: boolean; notify?: { platform: string; target: string } | null }): Promise<Envelope<OpResult>> {
     return this.post('/cron-panel/create', input)
   }
 
-  update(entry: CronEntry, input: { description: string; expr: string; command: string; enabled: boolean }): Promise<Envelope<OpResult>> {
+  update(entry: CronEntry, input: { description: string; expr: string; command: string; enabled: boolean; notify?: { platform: string; target: string } | null }): Promise<Envelope<OpResult>> {
     return this.post('/cron-panel/update', { ...entry, ...input })
   }
 
@@ -45,5 +45,10 @@ export class CronPanelApi {
 
   logs(entry: CronEntry): Promise<Envelope<{ path: string | null; lines: string[] }>> {
     return this.post('/cron-panel/logs', entry)
+  }
+
+  /** 下一次执行时间预览。 */
+  next(expr: string): Promise<Envelope<{ next: string[] }>> {
+    return this.post('/cron-panel/next', { expr })
   }
 }

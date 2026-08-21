@@ -64,6 +64,16 @@ const PRESETS: Record<string, string> = {
   monthly: '0 0 1 * *',
 }
 
+/** 与后端一致的 5 字段 cron 表达式前端校验。 */
+const EXPR_OK = /^[0-9*/,?#A-Za-z-]+\s+[0-9*/,?#A-Za-z-]+\s+[0-9*/,?#A-Za-z-]+\s+[0-9*/,?#A-Za-z-]+\s+[0-9*/,?#A-Za-z-]+$/
+
+/** 本地化下次执行时间（yyyy-MM-dd HH:mm）。 */
+function formatRunTime(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 let overlayStyleInjected = false
 function ensureOverlayStyle(): void {
   if (overlayStyleInjected) return
@@ -89,6 +99,9 @@ export function DetailOverlay(props: {
   const [expr, setExpr] = useState(entry?.expr ?? PRESETS.daily)
   const [command, setCommand] = useState(entry?.command ?? '')
   const [enabled, setEnabled] = useState(entry?.enabled ?? true)
+  // 完成后主动通知：平台 + 目标（走 message-gateway /gateway/push）。
+  const [notifyPlatform, setNotifyPlatform] = useState(entry?.notify?.platform ?? 'telegram')
+  const [notifyTarget, setNotifyTarget] = useState(entry?.notify?.target ?? '')
   const [preset, setPreset] = useState('custom')
   const [nl, setNl] = useState('')
   const [busy, setBusy] = useState(false)
@@ -96,6 +109,8 @@ export function DetailOverlay(props: {
   // 执行记录：{ path, lines }；null = 尚未加载。
   const [logs, setLogs] = useState<{ path: string | null; lines: string[] } | null>(null)
   const [logsBusy, setLogsBusy] = useState(false)
+  // 下一次执行时间预览（表达式变化时刷新）。
+  const [nextTimes, setNextTimes] = useState<string[] | null>(null)
 
   // 自然语言实时解析：命中则自动填入表达式。
   const nlResult = nl.trim() === '' ? null : parseNaturalLanguage(nl)
@@ -112,6 +127,21 @@ export function DetailOverlay(props: {
   useEffect(() => {
     void loadLogs()
   }, [loadLogs])
+
+  // 表达式变化 → 防抖请求下次执行时间预览。
+  useEffect(() => {
+    if (expr.trim() === '' || !EXPR_OK.test(expr)) {
+      setNextTimes(null)
+      return
+    }
+    const timer = window.setTimeout(() => {
+      void api.next(expr.trim()).then((result) => {
+        if (result.ok) setNextTimes(result.value.next)
+        else setNextTimes(null)
+      })
+    }, 300)
+    return () => window.clearTimeout(timer)
+  }, [expr, api])
 
   // ESC 关闭。
   useEffect(() => {
@@ -136,7 +166,13 @@ export function DetailOverlay(props: {
     }
     setBusy(true)
     setMessage(null)
-    const input = { description: description.trim(), expr: expr.trim(), command: command.trim(), enabled }
+    const input = {
+      description: description.trim(),
+      expr: expr.trim(),
+      command: command.trim(),
+      enabled,
+      notify: notifyTarget.trim() !== '' ? { platform: notifyPlatform, target: notifyTarget.trim() } : null,
+    }
     const result = entry === null
       ? await api.create(input)
       : await api.update(entry, input)
@@ -148,7 +184,7 @@ export function DetailOverlay(props: {
     } else {
       setMessage({ text: result.error.message, kind: 'err' })
     }
-  }, [api, entry, description, expr, command, enabled, isNew, t, onSaved, onClose])
+  }, [api, entry, description, expr, command, enabled, notifyPlatform, notifyTarget, isNew, t, onSaved, onClose])
 
   const remove = useCallback(async (): Promise<void> => {
     if (entry === null) return
@@ -228,6 +264,11 @@ export function DetailOverlay(props: {
               setPreset('custom')
             }} />
           <div className="dsh-cron-hint">{t('expr.hint')}</div>
+          {nextTimes !== null && nextTimes.length > 0 ? (
+            <div className="dsh-cron-hint" style={{ color: 'var(--cp-accent)' }}>
+              {t('detail.next')}：{nextTimes.slice(0, 5).map(formatRunTime).join('，')}
+            </div>
+          ) : null}
         </div>
 
         <div className="dsh-cron-field">
@@ -242,6 +283,24 @@ export function DetailOverlay(props: {
             <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
             {t('detail.enabled')}
           </label>
+        </div>
+
+        <div className="dsh-cron-field">
+          <label>{t('detail.notify')}</label>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <select className="dsh-cron-input" value={notifyPlatform}
+              onChange={(event) => setNotifyPlatform(event.target.value)}
+              style={{ maxWidth: 150 }}>
+              <option value="telegram">Telegram</option>
+              <option value="discord">Discord</option>
+              <option value="wecom-aibot">企微智能机器人</option>
+              <option value="email">Email</option>
+            </select>
+            <input className="dsh-cron-input mono" value={notifyTarget}
+              placeholder={t('detail.notify.placeholder')}
+              onChange={(event) => setNotifyTarget(event.target.value)} />
+          </div>
+          <div className="dsh-cron-hint">{t('detail.notify.hint')}</div>
         </div>
 
         {!isNew ? (

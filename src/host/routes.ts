@@ -3,14 +3,15 @@
  * @module dsh-cron-panel/host/routes
  */
 
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, dirname } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import type { CronEntry, CronView, OpResult } from '../core/types.ts'
-import { applyOperation, readCrontab, writeCrontab, type CronRunner } from './cron-service.ts'
+import { applyOperation, readCrontab, writeCrontab, withNotify, stripNotify, type CronRunner } from './cron-service.ts'
+import { nextRuns } from './cron-next.ts'
 
 type Envelope<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 
@@ -52,6 +53,47 @@ function bool(payload: unknown, key: string, fallback: boolean): boolean {
   if (typeof payload !== 'object' || payload === null) return fallback
   const value = (payload as Record<string, unknown>)[key]
   return typeof value === 'boolean' ? value : fallback
+}
+
+/** 从 payload 解析通知配置：{ platform, target } 或 null（未配置）。 */
+function parseNotify(payload: unknown): { platform: string; target: string } | null {
+  if (typeof payload !== 'object' || payload === null) return null
+  const raw = (payload as Record<string, unknown>).notify
+  if (typeof raw !== 'object' || raw === null) return null
+  const rec = raw as Record<string, unknown>
+  const platform = typeof rec.platform === 'string' ? rec.platform.trim() : ''
+  const target = typeof rec.target === 'string' ? rec.target.trim() : ''
+  if (platform === '' || target === '') return null
+  return { platform, target }
+}
+
+/** 通知推送辅助脚本内容（cron 环境调用 /gateway/push）。 */
+const NOTIFY_SCRIPT_CONTENT = `#!/bin/bash
+# dsh-cron-panel 通知推送辅助脚本（由插件自动生成；任务完成后调用 message-gateway 推送）。
+# 用法: <script> '<platform|target|描述>' <exit_code>
+D="\$(printf '%s' "\$1" | base64 -d 2>/dev/null)"
+EC="\${2:-0}"
+P="\${D%%|*}"; R="\${D#*|}"
+T="\${R%%|*}"; DESC="\${R#*|}"
+[ -n "\$P" ] && [ -n "\$T" ] || exit 0
+BODY="\$(printf '{\\"platform\\":\\"%s\\",\\"target\\":\\"%s\\",\\"title\\":\\"cron 任务完成\\",\\"content\\":\\"%s\\\\n退出码: %s\\"}' "\$P" "\$T" "\$DESC" "\$EC")"
+curl -s -m 10 -X POST http://127.0.0.1:3080/gateway/push -H 'content-type: application/json' -d "\$BODY" >/dev/null 2>&1 || true
+`
+
+/** 确保通知推送脚本存在（不存在则写入）。 */
+async function ensureNotifyScript(): Promise<string> {
+  const path = join(homedir(), '.local', 'share', 'dsh-cron-notify.sh')
+  try {
+    await writeFile(path, NOTIFY_SCRIPT_CONTENT, { mode: 0o700 })
+  } catch (error) {
+    console.error('[dsh-cron-panel] write notify script failed', error)
+  }
+  return path
+}
+
+/** 从命令中剥离通知推送段（供 update 移除通知时使用）。 */
+function stripNotifyIn(command: string): string {
+  return stripNotify(command).command
 }
 
 /** 简单的 5 字段 cron 表达式校验（放宽：允许星号、斜杠、逗号、问号、井号等字符）。 */
@@ -115,13 +157,34 @@ export function registerCronPanelRoutes(ctx: Context, runner: CronRunner): () =>
             return
           }
           const enabled = bool(payload, 'enabled', true)
+          const notify = parseNotify(payload)
           const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
           const view = await readCrontab(runner)
+          let finalCommand = withLogRedirect(command, id)
+          if (notify !== null) {
+            await ensureNotifyScript()
+            finalCommand = withNotify(finalCommand, notify, description)
+          }
           await writeCrontab(
             runner,
-            applyOperation(view, { kind: 'create', id, description, expr, command: withLogRedirect(command, id), enabled }),
+            applyOperation(view, { kind: 'create', id, description, expr, command: finalCommand, enabled }),
           )
           json(res, { ok: true, value: { output: `已创建：${expr} ${command}` } satisfies OpResult })
+          return
+        }
+        if (path === '/cron-panel/next') {
+          // 下一次执行时间预览：expr → 接下来 5 次运行时间。
+          const expr = str(payload, 'expr') ?? ''
+          if (expr === '') {
+            json(res, { ok: false, error: { code: 'internal', message: 'missing expr' } })
+            return
+          }
+          const result = nextRuns(expr)
+          if (!result.ok) {
+            json(res, { ok: false, error: { code: 'internal', message: result.error } })
+            return
+          }
+          json(res, { ok: true, value: { next: result.next.map((d) => d.toISOString()) } })
           return
         }
         if (path === '/cron-panel/logs') {
@@ -175,7 +238,25 @@ export function registerCronPanelRoutes(ctx: Context, runner: CronRunner): () =>
             return
           }
           const enabled = bool(payload, 'enabled', entryRef.enabled)
-          const finalCommand = entryRef.managed ? withLogRedirect(command, entryRef.id) : command
+          const notify = parseNotify(payload)
+          let finalCommand = entryRef.managed ? withLogRedirect(command, entryRef.id) : command
+          // 通知配置：payload 显式给了 notify 字段才更新（区分「未传」与「传 null 移除」）。
+          if (entryRef.managed) {
+            const hasNotifyKey = typeof payload === 'object' && payload !== null && 'notify' in (payload as Record<string, unknown>)
+            if (hasNotifyKey) {
+              if (notify !== null) {
+                await ensureNotifyScript()
+                finalCommand = withNotify(finalCommand, notify, description)
+              } else {
+                // 移除通知段：finalCommand 当前可能带旧通知段（entryRef.command 是纯命令，需从 crontab 原行剥离）。
+                // 这里用 stripNotify 对 finalCommand 处理一次（若 routes 层已带则剥离）。
+                finalCommand = stripNotifyIn(finalCommand)
+              }
+            } else if (entryRef.notify !== undefined && entryRef.notify !== null) {
+              // 未传 notify 但原条目有 → 保留原通知配置。
+              finalCommand = withNotify(finalCommand, entryRef.notify, description)
+            }
+          }
           await writeCrontab(
             runner,
             applyOperation(view, { kind: 'update', entry: entryRef, description, expr, command: finalCommand, enabled }),

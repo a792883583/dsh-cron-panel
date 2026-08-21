@@ -56,6 +56,40 @@ const MARK_PREFIX = '# dsh-cron:'
 /** 调度行正则：5 字段 cron 表达式 + 命令（可带前导 # 表示禁用）。 */
 const SCHEDULE_LINE = /^(#\s*)?(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(.+)$/
 
+/** 通知推送辅助脚本（cron 环境调用，避免命令内嵌 JSON 的引号问题）。 */
+export const NOTIFY_SCRIPT = '$HOME/.local/share/dsh-cron-notify.sh'
+/** 命令内嵌的通知标记：`__dsn='<platform>|<target>|<描述base64>'`。 */
+const NOTIFY_MARK = /;\s*__dsn='([^']*)';\s*ec=\$[\?0-9][^;]*;\s*sh\s+[^;]*dsh-cron-notify\.sh\s+"\$__dsn"\s+"\$ec"\s*$/
+
+/**
+ * 从完整命令中剥离插件追加的「日志重定向 + 通知推送」段，返回原始命令与通知配置。
+ * @param command crontab 中的完整命令。
+ */
+export function stripNotify(command: string): { command: string; notify: { platform: string; target: string } | null } {
+  let cmd = command.trim()
+  let notify: { platform: string; target: string } | null = null
+  const m = cmd.match(NOTIFY_MARK)
+  if (m !== null) {
+    const raw = Buffer.from(m[1], 'base64').toString('utf8')
+    const [platform, target, ...rest] = raw.split('|')
+    if (platform !== '' && target !== undefined) notify = { platform, target }
+    cmd = cmd.slice(0, m.index).trim()
+  }
+  return { command: cmd, notify }
+}
+
+/**
+ * 为命令追加通知推送段（幂等：已含通知段则不动）。
+ * @param command 已含日志重定向的完整命令。
+ * @param notify 通知配置（平台/目标）。
+ * @param description 任务描述（推送内容里展示）。
+ */
+export function withNotify(command: string, notify: { platform: string; target: string }, description: string): string {
+  if (NOTIFY_MARK.test(command)) return command
+  const payload = Buffer.from(`${notify.platform}|${notify.target}|${description}`).toString('base64')
+  return `${command}; __dsn='${payload}'; ec=$?; sh ${NOTIFY_SCRIPT} "$__dsn" "$ec"`
+}
+
 /** 从 crontab 文本解析出条目视图（按行保留原始文本）。 */
 export function parseCrontab(text: string): CronView {
   const lines = text.split('\n')
@@ -69,15 +103,17 @@ export function parseCrontab(text: string): CronView {
       const scheduleLine = lines[i + 1] ?? ''
       const m = scheduleLine.match(SCHEDULE_LINE)
       if (m !== null) {
+        // 剥离插件追加的「通知推送段 + 日志重定向」，显示原始命令与通知配置。
+        const stripped = stripNotify(m[3].trim())
         entries.push({
           id,
           description,
           expr: m[2].trim(),
-          // 剥离插件自动追加的日志重定向，显示原始命令。
-          command: m[3].trim().replace(/\s*>>\s*\S+dsh-cron-\S+\.log\s*2>&1\s*$/, ''),
+          command: stripped.command.replace(/\s*>>\s*\S+dsh-cron-\S+\.log\s*2>&1\s*$/, ''),
           enabled: m[1] === undefined,
           managed: true,
           lines: [i, i + 1],
+          notify: stripped.notify,
         })
         i += 1
         continue
