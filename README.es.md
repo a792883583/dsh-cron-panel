@@ -10,6 +10,8 @@ Un panel de tareas programadas para la GUI web de DSH: se sitúa entre el select
 - **Secciones separadas**: tareas de DSH (creadas desde el panel, marcadas) y tareas del sistema (entradas crontab existentes) se muestran por separado
 - **Creación por lenguaje natural**: escribe «ejecutar copia cada día a las 9am», «limpiar temporales cada 30 minutos», «cada lunes a las 20h» y se parsea automáticamente a una expresión cron (chino e inglés, más de 17 patrones); también se admiten expresiones manuales
 - **Detalles a pantalla completa**: haz clic en una tarea para abrir una superposición sobre la conversación, cierra con la ✕ arriba a la derecha; editar / guardar / eliminar / activar
+- **Vista previa de la próxima ejecución**: al editar, se muestran automáticamente las próximas 5 ejecuciones a partir de la expresión cron (evita errores)
+- **Notificar al finalizar**: al editar una tarea puede configurar "notificar al finalizar" — tras terminar, el resultado se envía a la plataforma seleccionada (Telegram / Discord / Bot de IA de WeCom / Email); requiere `dsh-message-gateway` instalado y conectado (QQ no admite push activo). El envío usa `/gateway/push`; al comando cron se le añade automáticamente el segmento de push (código de salida + descripción), sin configuración adicional
 - **Registros de ejecución**: las tareas creadas desde el panel registran automáticamente (`~/Library/Logs/dsh-cron-<id>.log`); las tareas del sistema reutilizan su redirección de log existente; más recientes primero, con botón de actualizar
 - **Multilingüe**: sigue el idioma de la interfaz web de DSH (chino / inglés); los navegadores en español reciben automáticamente el texto en español; por defecto chino simplificado
 - Tema claro / oscuro siguiendo la GUI web de DSH
