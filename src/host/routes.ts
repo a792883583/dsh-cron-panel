@@ -9,8 +9,9 @@ import { join, dirname } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { CronEntry, CronView, OpResult } from '../core/types.ts'
-import { applyOperation, readCrontab, writeCrontab, withNotify, stripNotify, type CronRunner } from './cron-service.ts'
+import { applyOperation, readCrontab, writeCrontab, withRunner, stripRunner, type CronRunner } from './cron-service.ts'
 import { nextRuns } from './cron-next.ts'
 
 type Envelope<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
@@ -67,6 +68,21 @@ function parseNotify(payload: unknown): { platform: string; target: string } | n
   return { platform, target }
 }
 
+/** 从 payload 解析重试参数（retries 0-99、retryDelaySec 1-86400；缺省 0/60）。 */
+function parseRetries(payload: unknown, fallback: { retries: number; retryDelaySec: number }): { retries: number; retryDelaySec: number } {
+  if (typeof payload !== 'object' || payload === null) return fallback
+  const rec = payload as Record<string, unknown>
+  const rawRetries = rec.retries
+  const rawDelay = rec.retryDelaySec
+  const retries = typeof rawRetries === 'number' && Number.isFinite(rawRetries)
+    ? Math.max(0, Math.min(99, Math.floor(rawRetries)))
+    : fallback.retries
+  const retryDelaySec = typeof rawDelay === 'number' && Number.isFinite(rawDelay)
+    ? Math.max(1, Math.min(86400, Math.floor(rawDelay)))
+    : fallback.retryDelaySec
+  return { retries, retryDelaySec }
+}
+
 /** 通知推送辅助脚本内容（cron 环境调用 /gateway/push）。 */
 const NOTIFY_SCRIPT_CONTENT = `#!/bin/bash
 # dsh-cron-panel 通知推送辅助脚本（由插件自动生成；任务完成后调用 message-gateway 推送）。
@@ -80,20 +96,40 @@ BODY="\$(printf '{\\"platform\\":\\"%s\\",\\"target\\":\\"%s\\",\\"title\\":\\"c
 curl -s -m 10 -X POST http://127.0.0.1:3080/gateway/push -H 'content-type: application/json' -d "\$BODY" >/dev/null 2>&1 || true
 `
 
-/** 确保通知推送脚本存在（不存在则写入）。 */
-async function ensureNotifyScript(): Promise<string> {
-  const path = join(homedir(), '.local', 'share', 'dsh-cron-notify.sh')
-  try {
-    await writeFile(path, NOTIFY_SCRIPT_CONTENT, { mode: 0o700 })
-  } catch (error) {
-    console.error('[dsh-cron-panel] write notify script failed', error)
-  }
-  return path
-}
+/** 统一 runner 脚本内容（执行命令 + 失败重试 + 完成后通知）。 */
+const RUN_SCRIPT_CONTENT = `#!/bin/bash
+# dsh-cron-panel 统一 runner（由插件自动生成）：执行命令、失败自动重试、完成后通知。
+# 用法: <script> '<base64 命令>' <重试次数> <重试间隔秒> '<base64 dsn 或 -|->'
+# 注意：命令在子 shell 中执行，命令内出现 exit 只退出子 shell，不会中断重试循环。
+CMD="\$(printf '%s' "\$1" | base64 -d 2>/dev/null)"
+RETRIES="\${2:-0}"
+DELAY="\${3:-60}"
+DSN="\${4:--}"
+[ -n "\$CMD" ] || exit 0
+EC=0
+I=0
+while [ "\$I" -le "\$RETRIES" ]; do
+  ( eval "\$CMD" )
+  EC=\$?
+  [ "\$EC" -eq 0 ] && break
+  I=\$((I + 1))
+  [ "\$I" -le "\$RETRIES" ] && sleep "\$DELAY"
+done
+if [ -n "\$DSN" ] && [ "\$DSN" != "-" ]; then
+  sh "\$HOME/.local/share/dsh-cron-notify.sh" "\$DSN" "\$EC" >/dev/null 2>&1 || true
+fi
+exit \$EC
+`
 
-/** 从命令中剥离通知推送段（供 update 移除通知时使用）。 */
-function stripNotifyIn(command: string): string {
-  return stripNotify(command).command
+/** 确保 runner + 通知推送脚本存在（不存在则写入）。 */
+async function ensureRunnerScripts(): Promise<void> {
+  const dir = join(homedir(), '.local', 'share')
+  try {
+    await writeFile(join(dir, 'dsh-cron-notify.sh'), NOTIFY_SCRIPT_CONTENT, { mode: 0o700 })
+    await writeFile(join(dir, 'dsh-cron-run.sh'), RUN_SCRIPT_CONTENT, { mode: 0o700 })
+  } catch (error) {
+    console.error('[dsh-cron-panel] write runner scripts failed', error)
+  }
 }
 
 /** 简单的 5 字段 cron 表达式校验（放宽：允许星号、斜杠、逗号、问号、井号等字符）。 */
@@ -158,18 +194,44 @@ export function registerCronPanelRoutes(ctx: Context, runner: CronRunner): () =>
           }
           const enabled = bool(payload, 'enabled', true)
           const notify = parseNotify(payload)
+          const { retries, retryDelaySec } = parseRetries(payload, { retries: 0, retryDelaySec: 60 })
           const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
           const view = await readCrontab(runner)
-          let finalCommand = withLogRedirect(command, id)
-          if (notify !== null) {
-            await ensureNotifyScript()
-            finalCommand = withNotify(finalCommand, notify, description)
-          }
+          await ensureRunnerScripts()
+          const runnerCmd = withRunner(command, { notify, description, retries, retryDelaySec })
+          const finalCommand = withLogRedirect(runnerCmd, id)
           await writeCrontab(
             runner,
             applyOperation(view, { kind: 'create', id, description, expr, command: finalCommand, enabled }),
           )
           json(res, { ok: true, value: { output: `已创建：${expr} ${command}` } satisfies OpResult })
+          return
+        }
+        if (path === '/cron-panel/run-now') {
+          // 立即运行一次：直接执行任务的纯命令（不经 cron 调度），返回退出码与输出。
+          const entry = payload as Partial<CronEntry> | null
+          if (entry === null || typeof entry !== 'object' || typeof entry.command !== 'string' || entry.command.trim() === '') {
+            json(res, { ok: false, error: { code: 'internal', message: 'malformed entry' } })
+            return
+          }
+          const spec: SubprocessSpawnSpec = {
+            argv: ['/bin/sh', '-c', entry.command.trim()],
+            cwd: homedir(),
+            stdio: {
+              stdin: 'ignore',
+              stdout: { maxBytes: 1 << 20 },
+              stderr: { maxBytes: 1 << 20 },
+            },
+            graceMs: 60_000,
+          }
+          const handle = ctx.subprocess.spawn(spec)
+          const outcome = await handle.done
+          const stdout = handle.collected.stdout?.readFrom(0).text ?? ''
+          const stderr = handle.collected.stderr?.readFrom(0).text ?? ''
+          json(res, {
+            ok: true,
+            value: { exitCode: outcome.exitCode, stdout, stderr },
+          })
           return
         }
         if (path === '/cron-panel/next') {
@@ -223,6 +285,9 @@ export function registerCronPanelRoutes(ctx: Context, runner: CronRunner): () =>
             enabled: typeof entry.enabled === 'boolean' ? entry.enabled : true,
             managed: entry.managed === true,
             lines: entry.lines.filter((n): n is number => typeof n === 'number'),
+            notify: entry.notify ?? null,
+            retries: typeof entry.retries === 'number' ? entry.retries : 0,
+            retryDelaySec: typeof entry.retryDelaySec === 'number' ? entry.retryDelaySec : 60,
           }
           const view = await readCrontab(runner)
           if (path === '/cron-panel/delete') {
@@ -238,24 +303,20 @@ export function registerCronPanelRoutes(ctx: Context, runner: CronRunner): () =>
             return
           }
           const enabled = bool(payload, 'enabled', entryRef.enabled)
-          const notify = parseNotify(payload)
-          let finalCommand = entryRef.managed ? withLogRedirect(command, entryRef.id) : command
-          // 通知配置：payload 显式给了 notify 字段才更新（区分「未传」与「传 null 移除」）。
+          // 通知：payload 显式给了 notify 字段才更新（区分「未传」与「传 null 移除」）。
+          const hasNotifyKey = typeof payload === 'object' && payload !== null && 'notify' in (payload as Record<string, unknown>)
+          const finalNotify = hasNotifyKey ? parseNotify(payload) : (entryRef.notify ?? null)
+          // 重试：payload 传了数字字段才更新，否则保留原值。
+          const { retries, retryDelaySec } = parseRetries(payload, {
+            retries: entryRef.retries ?? 0,
+            retryDelaySec: entryRef.retryDelaySec ?? 60,
+          })
+          // 管理条目统一重新生成 runner 格式（自动升级旧格式）；系统条目保持纯命令。
+          let finalCommand = command
           if (entryRef.managed) {
-            const hasNotifyKey = typeof payload === 'object' && payload !== null && 'notify' in (payload as Record<string, unknown>)
-            if (hasNotifyKey) {
-              if (notify !== null) {
-                await ensureNotifyScript()
-                finalCommand = withNotify(finalCommand, notify, description)
-              } else {
-                // 移除通知段：finalCommand 当前可能带旧通知段（entryRef.command 是纯命令，需从 crontab 原行剥离）。
-                // 这里用 stripNotify 对 finalCommand 处理一次（若 routes 层已带则剥离）。
-                finalCommand = stripNotifyIn(finalCommand)
-              }
-            } else if (entryRef.notify !== undefined && entryRef.notify !== null) {
-              // 未传 notify 但原条目有 → 保留原通知配置。
-              finalCommand = withNotify(finalCommand, entryRef.notify, description)
-            }
+            await ensureRunnerScripts()
+            finalCommand = withRunner(finalCommand, { notify: finalNotify, description, retries, retryDelaySec })
+            finalCommand = withLogRedirect(finalCommand, entryRef.id)
           }
           await writeCrontab(
             runner,

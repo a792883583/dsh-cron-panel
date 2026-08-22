@@ -12,6 +12,9 @@ DSH Web GUI 的定时任务面板：位于侧边栏工作区与设置之间，�
 - **全屏详情**：点击任务在对话区全屏覆盖，右上角关闭；支持编辑 / 保存 / 删除 / 启停
 - **下次执行预览**：编辑时输入 cron 表达式自动显示「接下来 5 次运行时间」，避免表达式写错
 - **完成后主动通知**：编辑任务时可配置「完成后通知」——任务执行结束后，结果自动推送到所选平台（Telegram / Discord / 企业微信智能机器人 / Email），需已安装并连接 `dsh-message-gateway`（QQ 官方不支持主动推送）。推送走网关的 `/gateway/push`，cron 命令自动追加推送段（含退出码与任务描述），无需额外配置
+- **立即运行**：任务详情里点「立即运行」直接执行一次命令（不经 cron 调度），实时查看退出码与输出——建完任务先验证再等调度
+- **失败自动重试**：可配置失败后自动重试次数与间隔（命令在子 shell 中执行，失败退出码触发重试）
+- **写前自动备份**：每次改写 crontab 前自动备份当前内容到 `~/.local/share/dsh-cron-backups/`（保留最近 20 份），误操作随时可回滚
 - **执行记录**：面板创建的任务自动记录日志（`~/Library/Logs/dsh-cron-<id>.log`）；系统任务自动读取命令中已有的日志重定向；最新在上、可刷新
 - **多语言**：自动跟随 DSH Web 界面语言（中文 / 英文），西班牙语浏览器自动切换西班牙语，默认简体中文
 - 明暗主题跟随 DSH Web GUI
@@ -35,6 +38,10 @@ dsh plugin --profile web add dsh-cron-panel
 重启 `dsh web`，侧边栏工作区下方出现「定时任务」面板。
 
 > 本地开发时可用 `dsh plugin --profile web add link:/path/to/dsh-cron-panel` 以链接方式安装，修改源码后 `npm run build` 并刷新页面即可生效。
+
+## 反馈
+
+使用中遇到问题或有功能建议？欢迎到 [GitHub Issues](https://github.com/a792883583/dsh-cron-panel/issues) 反馈，帮助我们把插件做得更好。
 
 ## License
 

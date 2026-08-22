@@ -58,11 +58,53 @@ const SCHEDULE_LINE = /^(#\s*)?(\S+\s+\S+\s+\S+\s+\S+\s+\S+)\s+(.+)$/
 
 /** 通知推送辅助脚本（cron 环境调用，避免命令内嵌 JSON 的引号问题）。 */
 export const NOTIFY_SCRIPT = '$HOME/.local/share/dsh-cron-notify.sh'
-/** 命令内嵌的通知标记：`__dsn='<platform>|<target>|<描述base64>'`。 */
+/** 统一 runner 脚本（执行命令 + 失败重试 + 完成后通知，参数 base64 编码避免引号问题）。 */
+export const RUN_SCRIPT = '$HOME/.local/share/dsh-cron-run.sh'
+/** 命令内嵌的通知标记（旧格式，向后兼容）：`__dsn='<platform>|<target>|<描述base64>'`。 */
 const NOTIFY_MARK = /;\s*__dsn='([^']*)';\s*ec=\$[\?0-9][^;]*;\s*sh\s+[^;]*dsh-cron-notify\.sh\s+"\$__dsn"\s+"\$ec"\s*$/
+/** 新格式 runner 包装：`sh dsh-cron-run.sh '<b64cmd>' <retries> <delaySec> '<dsn|->'`。 */
+const RUNNER_MARK = /^sh\s+\$HOME\/\.local\/share\/dsh-cron-run\.sh\s+'([^']*)'\s+(\d+)\s+(\d+)\s+'([^']*)'\s*$/
+
+/** 剥离结果：原始命令 + 通知配置 + 重试参数。 */
+export interface StrippedCommand {
+  command: string
+  notify: { platform: string; target: string } | null
+  retries: number
+  retryDelaySec: number
+}
+
+/** 解码 dsn（platform|target|描述 的 base64）为通知配置。 */
+function decodeNotify(dsn64: string): { platform: string; target: string } | null {
+  if (dsn64 === '' || dsn64 === '-') return null
+  const raw = Buffer.from(dsn64, 'base64').toString('utf8')
+  const [platform, target] = raw.split('|')
+  if (platform !== '' && target !== undefined && target !== '') return { platform, target }
+  return null
+}
 
 /**
- * 从完整命令中剥离插件追加的「日志重定向 + 通知推送」段，返回原始命令与通知配置。
+ * 从完整命令中剥离插件追加的「日志重定向 + runner 包装（重试/通知）」，返回原始命令与配置。
+ * 兼容新旧两种格式：新格式优先（runner 脚本），旧格式（__dsn 内联）向后兼容。
+ * @param command crontab 中的完整命令。
+ */
+export function stripRunner(command: string): StrippedCommand {
+  let cmd = command.trim()
+  // 先剥离外层日志重定向（runner 命令带 `>> dsh-cron-<id>.log 2>&1`）。
+  cmd = cmd.replace(/\s*>>\s*\S+dsh-cron-\S+\.log\s*2>&1\s*$/, '')
+  const runner = cmd.match(RUNNER_MARK)
+  if (runner !== null) {
+    const inner = Buffer.from(runner[1], 'base64').toString('utf8')
+    const retries = Number.isInteger(Number(runner[2])) ? Number(runner[2]) : 0
+    const retryDelaySec = Number.isInteger(Number(runner[3])) ? Number(runner[3]) : 0
+    return { command: inner, notify: decodeNotify(runner[4]), retries, retryDelaySec }
+  }
+  // 旧格式 fallback（无重试参数）。
+  const legacy = stripNotify(cmd)
+  return { command: legacy.command, notify: legacy.notify, retries: 0, retryDelaySec: 0 }
+}
+
+/**
+ * 从完整命令中剥离旧格式的「通知推送段」，返回原始命令与通知配置（向后兼容用）。
  * @param command crontab 中的完整命令。
  */
 export function stripNotify(command: string): { command: string; notify: { platform: string; target: string } | null } {
@@ -70,24 +112,24 @@ export function stripNotify(command: string): { command: string; notify: { platf
   let notify: { platform: string; target: string } | null = null
   const m = cmd.match(NOTIFY_MARK)
   if (m !== null) {
-    const raw = Buffer.from(m[1], 'base64').toString('utf8')
-    const [platform, target, ...rest] = raw.split('|')
-    if (platform !== '' && target !== undefined) notify = { platform, target }
+    notify = decodeNotify(m[1])
     cmd = cmd.slice(0, m.index).trim()
   }
   return { command: cmd, notify }
 }
 
 /**
- * 为命令追加通知推送段（幂等：已含通知段则不动）。
- * @param command 已含日志重定向的完整命令。
- * @param notify 通知配置（平台/目标）。
- * @param description 任务描述（推送内容里展示）。
+ * 用统一 runner 包装命令（幂等：已是 runner 格式则不动）。
+ * @param command 纯命令（不含日志重定向）。
+ * @param opts 通知配置 / 描述 / 重试参数。
  */
-export function withNotify(command: string, notify: { platform: string; target: string }, description: string): string {
-  if (NOTIFY_MARK.test(command)) return command
-  const payload = Buffer.from(`${notify.platform}|${notify.target}|${description}`).toString('base64')
-  return `${command}; __dsn='${payload}'; ec=$?; sh ${NOTIFY_SCRIPT} "$__dsn" "$ec"`
+export function withRunner(command: string, opts: { notify: { platform: string; target: string } | null; description: string; retries: number; retryDelaySec: number }): string {
+  if (RUNNER_MARK.test(command.trim())) return command
+  const cmd64 = Buffer.from(command).toString('base64')
+  const dsn = opts.notify !== null ? Buffer.from(`${opts.notify.platform}|${opts.notify.target}|${opts.description}`).toString('base64') : '-'
+  const retries = Math.max(0, Math.min(99, Math.floor(opts.retries || 0)))
+  const delay = Math.max(1, Math.min(86400, Math.floor(opts.retryDelaySec || 60)))
+  return `sh ${RUN_SCRIPT} '${cmd64}' ${retries} ${delay} '${dsn}'`
 }
 
 /** 从 crontab 文本解析出条目视图（按行保留原始文本）。 */
@@ -103,8 +145,8 @@ export function parseCrontab(text: string): CronView {
       const scheduleLine = lines[i + 1] ?? ''
       const m = scheduleLine.match(SCHEDULE_LINE)
       if (m !== null) {
-        // 剥离插件追加的「通知推送段 + 日志重定向」，显示原始命令与通知配置。
-        const stripped = stripNotify(m[3].trim())
+        // 剥离插件追加的「runner 包装（重试/通知）+ 日志重定向」，显示原始命令与配置。
+        const stripped = stripRunner(m[3].trim())
         entries.push({
           id,
           description,
@@ -114,6 +156,8 @@ export function parseCrontab(text: string): CronView {
           managed: true,
           lines: [i, i + 1],
           notify: stripped.notify,
+          retries: stripped.retries,
+          retryDelaySec: stripped.retryDelaySec,
         })
         i += 1
         continue
@@ -190,7 +234,33 @@ export async function readCrontab(runner: CronRunner): Promise<CronView> {
 }
 
 /** 写入用户 crontab（整体替换）。 */
+/** 写入用户 crontab（整体替换；写前自动备份到 ~/.local/share/dsh-cron-backups/，保留最近 20 份）。 */
 export async function writeCrontab(runner: CronRunner, text: string): Promise<void> {
+  // 写前备份：任何异常（bug/误操作）都能从备份恢复。
+  try {
+    const current = await runner.run(['-l'])
+    if (current.exitCode === 0 && current.stdout.trim() !== '') {
+      const { mkdirSync, writeFileSync } = await import('node:fs')
+      const { homedir } = await import('node:os')
+      const { join } = await import('node:path')
+      const dir = join(homedir(), '.local', 'share', 'dsh-cron-backups')
+      mkdirSync(dir, { recursive: true })
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+      writeFileSync(join(dir, `crontab-${stamp}.txt`), current.stdout, { mode: 0o600 })
+      // 只保留最近 20 份。
+      const { readdirSync, unlinkSync } = await import('node:fs')
+      const backups = readdirSync(dir).filter((f) => f.startsWith('crontab-')).sort()
+      while (backups.length > 20) {
+        const oldest = backups.shift()
+        if (oldest !== undefined) {
+          try { unlinkSync(join(dir, oldest)) } catch { /* 忽略清理失败 */ }
+        }
+      }
+    }
+  } catch (error) {
+    // 备份失败不阻断写入（尽力而为）。
+    console.warn('[dsh-cron-panel] crontab backup failed', error)
+  }
   const result = await runner.run(['-'], text)
   if (result.exitCode !== 0) {
     throw new Error(result.stderr.trim() || '写入 crontab 失败')

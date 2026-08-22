@@ -102,6 +102,9 @@ export function DetailOverlay(props: {
   // 完成后主动通知：平台 + 目标（走 message-gateway /gateway/push）。
   const [notifyPlatform, setNotifyPlatform] = useState(entry?.notify?.platform ?? 'telegram')
   const [notifyTarget, setNotifyTarget] = useState(entry?.notify?.target ?? '')
+  // 失败自动重试：次数（0=不重试）与间隔秒。
+  const [retries, setRetries] = useState(entry?.retries ?? 0)
+  const [retryDelaySec, setRetryDelaySec] = useState(entry?.retryDelaySec ?? 60)
   const [preset, setPreset] = useState('custom')
   const [nl, setNl] = useState('')
   const [busy, setBusy] = useState(false)
@@ -111,6 +114,9 @@ export function DetailOverlay(props: {
   const [logsBusy, setLogsBusy] = useState(false)
   // 下一次执行时间预览（表达式变化时刷新）。
   const [nextTimes, setNextTimes] = useState<string[] | null>(null)
+  // 立即运行：{ exitCode, stdout, stderr }；null = 尚未运行。
+  const [runOutput, setRunOutput] = useState<{ exitCode: number | null; stdout: string; stderr: string } | null>(null)
+  const [runBusy, setRunBusy] = useState(false)
 
   // 自然语言实时解析：命中则自动填入表达式。
   const nlResult = nl.trim() === '' ? null : parseNaturalLanguage(nl)
@@ -172,6 +178,8 @@ export function DetailOverlay(props: {
       command: command.trim(),
       enabled,
       notify: notifyTarget.trim() !== '' ? { platform: notifyPlatform, target: notifyTarget.trim() } : null,
+      retries,
+      retryDelaySec,
     }
     const result = entry === null
       ? await api.create(input)
@@ -184,7 +192,7 @@ export function DetailOverlay(props: {
     } else {
       setMessage({ text: result.error.message, kind: 'err' })
     }
-  }, [api, entry, description, expr, command, enabled, notifyPlatform, notifyTarget, isNew, t, onSaved, onClose])
+  }, [api, entry, description, expr, command, enabled, notifyPlatform, notifyTarget, retries, retryDelaySec, isNew, t, onSaved, onClose])
 
   const remove = useCallback(async (): Promise<void> => {
     if (entry === null) return
@@ -201,6 +209,29 @@ export function DetailOverlay(props: {
       setMessage({ text: result.error.message, kind: 'err' })
     }
   }, [api, entry, t, onSaved, onClose])
+
+  /** 立即运行：以当前表单的命令执行一次（不经 cron 调度），显示输出。 */
+  const runNow = useCallback(async (): Promise<void> => {
+    if (command.trim() === '' || runBusy) return
+    setRunBusy(true)
+    setRunOutput(null)
+    const snap: CronEntry = {
+      id: entry?.id ?? 'draft',
+      description: description.trim(),
+      expr: expr.trim(),
+      command: command.trim(),
+      enabled,
+      managed: entry?.managed ?? false,
+      lines: entry?.lines ?? [],
+    }
+    const result = await api.runNow(snap)
+    setRunBusy(false)
+    if (result.ok) {
+      setRunOutput(result.value)
+    } else {
+      setRunOutput({ exitCode: null, stdout: '', stderr: result.error.message })
+    }
+  }, [api, entry, description, expr, command, enabled, runBusy])
 
   return (
     <div className="dsh-cron-overlay" onClick={onClose}>
@@ -303,18 +334,54 @@ export function DetailOverlay(props: {
           <div className="dsh-cron-hint">{t('detail.notify.hint')}</div>
         </div>
 
+        <div className="dsh-cron-field">
+          <label>{t('detail.retry')}</label>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input className="dsh-cron-input" type="number" min={0} max={99} value={retries}
+              onChange={(event) => setRetries(Math.max(0, Math.min(99, Math.floor(Number(event.target.value) || 0))))}
+              style={{ maxWidth: 80 }} />
+            <span style={{ fontSize: 12, color: 'var(--cp-muted)' }}>{t('detail.retry.times')}</span>
+            <input className="dsh-cron-input" type="number" min={1} max={86400} value={retryDelaySec}
+              onChange={(event) => setRetryDelaySec(Math.max(1, Math.min(86400, Math.floor(Number(event.target.value) || 60))))}
+              style={{ maxWidth: 100 }} />
+            <span style={{ fontSize: 12, color: 'var(--cp-muted)' }}>{t('detail.retry.seconds')}</span>
+          </div>
+          <div className="dsh-cron-hint">{t('detail.retry.hint')}</div>
+        </div>
+
         {!isNew ? (
           <div className="dsh-cron-field">
             <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span>{t('detail.logs')}</span>
               <span className="spacer" style={{ flex: 1 }} />
+              <button type="button" className="dsh-cron-btn" disabled={runBusy || busy}
+                onClick={() => void runNow()}
+                style={{ padding: '2px 10px', fontSize: 11 }}>
+                {runBusy ? '…' : t('detail.runNow')}
+              </button>
               <button type="button" className="dsh-cron-btn" disabled={logsBusy}
                 onClick={() => void loadLogs()}
                 style={{ padding: '2px 10px', fontSize: 11 }}>
                 {t('detail.logs.refresh')}
               </button>
             </label>
-            <div className="dsh-cron-logbox">
+            {runOutput !== null ? (
+              <div className="dsh-cron-logbox" style={{ marginTop: 6 }}>
+                <div className="dsh-cron-hint" style={{ color: runOutput.exitCode === 0 ? 'var(--cp-accent)' : 'var(--cp-danger)' }}>
+                  {t('detail.runNow.exit')}: {runOutput.exitCode === null ? '—' : String(runOutput.exitCode)}
+                </div>
+                {runOutput.stdout !== '' ? (
+                  <pre className="dsh-cron-log-pre">{runOutput.stdout.slice(0, 4000)}</pre>
+                ) : null}
+                {runOutput.stderr !== '' ? (
+                  <pre className="dsh-cron-log-pre" style={{ color: 'var(--cp-danger)' }}>{runOutput.stderr.slice(0, 4000)}</pre>
+                ) : null}
+                {runOutput.stdout === '' && runOutput.stderr === '' ? (
+                  <div className="dsh-cron-log-empty">{t('detail.runNow.empty')}</div>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="dsh-cron-logbox" style={runOutput !== null ? { marginTop: 6 } : undefined}>
               {logsBusy && logs === null ? (
                 <div className="dsh-cron-log-empty">…</div>
               ) : logs === null ? null : logs.path === null ? (

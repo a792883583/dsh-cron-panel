@@ -18,6 +18,10 @@ export interface CronEntry {
   lines: number[]
   /** 完成后主动通知（走 message-gateway 的 /gateway/push；未配置为 undefined）。 */
   notify?: { platform: string; target: string } | null
+  /** 失败自动重试次数（0 = 不重试）。 */
+  retries?: number
+  /** 重试间隔（秒）。 */
+  retryDelaySec?: number
 }
 
 /** crontab 解析视图。 */

@@ -51,4 +51,9 @@ export class CronPanelApi {
   next(expr: string): Promise<Envelope<{ next: string[] }>> {
     return this.post('/cron-panel/next', { expr })
   }
+
+  /** 立即运行一次（执行任务的纯命令，返回退出码与输出）。 */
+  runNow(entry: CronEntry): Promise<Envelope<{ exitCode: number | null; stdout: string; stderr: string }>> {
+    return this.post('/cron-panel/run-now', entry)
+  }
 }
