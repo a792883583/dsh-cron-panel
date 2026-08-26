@@ -7,7 +7,8 @@ Un panel de tareas programadas para la GUI web de DSH: se sitúa entre el select
 ## Características
 
 - **Panel lateral**: debajo del selector de workspace y encima de los ajustes; ➕ en la cabecera para crear, ▾ para contraer (se pliega a una barra de título fina; el estado se guarda)
-- **Secciones separadas**: tareas de DSH (creadas desde el panel, marcadas) y tareas del sistema (entradas crontab existentes) se muestran por separado
+- **Secciones separadas e indicadores de estado**: las tareas de DSH y del sistema se muestran por separado, con puntos indicadores de estado (🟢 éxito / 🔴 error / ⚪ no ejecutado aún)
+- **Registros de ejecución y limpieza en un clic**: las tareas registran automáticamente con actualización en vivo y botón para limpiar registros y evitar acumulación
 - **Creación por lenguaje natural**: escribe «ejecutar copia cada día a las 9am», «limpiar temporales cada 30 minutos», «cada lunes a las 20h» y se parsea automáticamente a una expresión cron (chino e inglés, más de 17 patrones); también se admiten expresiones manuales
 - **Detalles a pantalla completa**: haz clic en una tarea para abrir una superposición sobre la conversación, cierra con la ✕ arriba a la derecha; editar / guardar / eliminar / activar
 - **Vista previa de la próxima ejecución**: al editar, se muestran automáticamente las próximas 5 ejecuciones a partir de la expresión cron (evita errores)
@@ -15,7 +16,7 @@ Un panel de tareas programadas para la GUI web de DSH: se sitúa entre el select
 - **Ejecutar ahora**: en los detalles de la tarea, pulse "Ejecutar ahora" para ejecutar el comando una vez inmediatamente (sin programación cron) y ver el código de salida y la salida en tiempo real — verifique una tarea justo tras crearla en lugar de esperar su horario
 - **Reintento automático**: configure el número de reintentos y la espera entre intentos (el comando corre en un subshell; un código de salida fallido dispara el reintento)
 - **Copia de seguridad antes de escribir**: cada reescritura de crontab se antecede de una copia del contenido actual en `~/.local/share/dsh-cron-backups/` (conserva las 20 más recientes), de modo que los errores siempre se pueden revertir
-- **Registros de ejecución**: las tareas creadas desde el panel registran automáticamente (`~/Library/Logs/dsh-cron-<id>.log`); las tareas del sistema reutilizan su redirección de log existente; más recientes primero, con botón de actualizar
+
 - **Multilingüe**: sigue el idioma de la interfaz web de DSH (chino / inglés); los navegadores en español reciben automáticamente el texto en español; por defecto chino simplificado
 - Tema claro / oscuro siguiendo la GUI web de DSH
 

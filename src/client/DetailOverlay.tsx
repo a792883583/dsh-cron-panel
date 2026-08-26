@@ -364,6 +364,18 @@ export function DetailOverlay(props: {
                 style={{ padding: '2px 10px', fontSize: 11 }}>
                 {t('detail.logs.refresh')}
               </button>
+              {entry && entry.managed ? (
+                <button type="button" className="dsh-cron-btn danger" disabled={logsBusy}
+                  onClick={async () => {
+                    if (window.confirm(t('detail.logs.clearConfirm'))) {
+                      await api.clearLogs(entry)
+                      void loadLogs()
+                    }
+                  }}
+                  style={{ padding: '2px 8px', fontSize: 11 }}>
+                  {t('detail.logs.clear')}
+                </button>
+              ) : null}
             </label>
             {runOutput !== null ? (
               <div className="dsh-cron-logbox" style={{ marginTop: 6 }}>

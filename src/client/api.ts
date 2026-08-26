@@ -47,6 +47,10 @@ export class CronPanelApi {
     return this.post('/cron-panel/logs', entry)
   }
 
+  clearLogs(entry: CronEntry): Promise<Envelope<OpResult>> {
+    return this.post('/cron-panel/clear-log', entry)
+  }
+
   /** 下一次执行时间预览。 */
   next(expr: string): Promise<Envelope<{ next: string[] }>> {
     return this.post('/cron-panel/next', { expr })

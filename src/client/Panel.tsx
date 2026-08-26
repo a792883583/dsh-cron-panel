@@ -31,6 +31,10 @@ const STYLE = `
 .dsh-cron-item { display:flex; align-items:center; gap:6px; padding:5px 10px; cursor:pointer;
   border-radius:6px; margin:0 4px; }
 .dsh-cron-item:hover { background:var(--cp-hover); }
+.dsh-cron-status-dot { width:6px; height:6px; border-radius:50%; flex:none; }
+.dsh-cron-status-dot.ok { background:#2ea043; }
+.dsh-cron-status-dot.err { background:#cf222e; }
+.dsh-cron-status-dot.none { background:var(--cp-muted); opacity:0.4; }
 .dsh-cron-item .expr { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:11px;
   color:var(--cp-accent); white-space:nowrap; flex:none; }
 .dsh-cron-item .cmd { flex:1; min-width:0; white-space:nowrap; overflow:hidden;
@@ -154,9 +158,11 @@ export function CronPanel(props: {
 /** 单条任务行。 */
 function CronRow(props: { entry: CronEntry; onOpen: (entry: CronEntry) => void }): React.ReactElement {
   const { entry, onOpen } = props
+  const st = entry.lastStatus ?? 'none'
   return (
     <div className="dsh-cron-item" title={entry.description || entry.command}
       onClick={() => onOpen(entry)}>
+      <span className={`dsh-cron-status-dot ${st}`} />
       <span className={`expr${entry.enabled ? '' : ' off'}`}>{entry.expr}</span>
       <span className={`cmd${entry.enabled ? '' : ' off'}`}>{entry.command}</span>
       {!entry.enabled ? <span className="del">✕</span> : null}

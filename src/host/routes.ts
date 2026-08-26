@@ -3,7 +3,8 @@
  * @module dsh-cron-panel/host/routes
  */
 
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile, rm } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -158,6 +159,25 @@ async function readLogTail(file: string): Promise<string[]> {
   return lines.slice(-120)
 }
 
+/** 读取日志文件最后一条执行状态（ok/err/none）。 */
+async function detectLastStatus(file: string | null): Promise<'ok' | 'err' | 'none'> {
+  if (!file) return 'none'
+  try {
+    const lines = await readLogTail(file)
+    if (lines.length === 0) return 'none'
+    // 逆序查找包含退出码或错误信息的末尾行
+    for (let i = lines.length - 1; i >= 0; i--) {
+      const line = lines[i].trim()
+      if (!line) continue
+      if (/error|failed|exception|fatal|panic|failure|找不到|未找到/i.test(line)) return 'err'
+      if (line.includes('exit: 0') || line.includes('status: ok') || line.includes('done') || line.includes('success')) return 'ok'
+    }
+    return 'ok'
+  } catch {
+    return 'none'
+  }
+}
+
 /** 注册 /cron-panel 各路由。 */
 export function registerCronPanelRoutes(ctx: Context, runner: CronRunner): () => void {
   return ctx.webServer.register({
@@ -181,6 +201,17 @@ export function registerCronPanelRoutes(ctx: Context, runner: CronRunner): () =>
       try {
         if (path === '/cron-panel/list') {
           const view = await readCrontab(runner)
+          // 附带每条任务的最近执行状态指示
+          for (const entry of view.entries) {
+            let logFile: string | null = null
+            if (entry.managed) {
+              logFile = logPathFor(entry.id)
+            } else if (entry.command) {
+              const m = entry.command.match(/>>\s*(\S+)/)
+              logFile = m === null ? null : m[1]
+            }
+            entry.lastStatus = await detectLastStatus(logFile)
+          }
           json(res, { ok: true, value: view satisfies CronView })
           return
         }
@@ -269,6 +300,31 @@ export function registerCronPanelRoutes(ctx: Context, runner: CronRunner): () =>
           }
           const lines = await readLogTail(file)
           json(res, { ok: true, value: { path: file, lines } })
+          return
+        }
+        if (path === '/cron-panel/clear-log') {
+          // 清空日志文件
+          const entry = payload as Partial<CronEntry> | null
+          if (entry === null || typeof entry !== 'object' || typeof entry.id !== 'string') {
+            json(res, { ok: false, error: { code: 'internal', message: 'malformed entry' } })
+            return
+          }
+          let file: string | null = null
+          if (entry.managed === true) {
+            file = logPathFor(entry.id)
+          } else if (typeof entry.command === 'string') {
+            const m = entry.command.match(/>>\s*(\S+)/)
+            file = m === null ? null : m[1]
+          }
+          if (file !== null) {
+            try {
+              await writeFile(file, '', 'utf8')
+            } catch (error) {
+              json(res, { ok: false, error: { code: 'internal', message: String(error) } })
+              return
+            }
+          }
+          json(res, { ok: true, value: { output: '已清空日志' } satisfies OpResult })
           return
         }
         if (path === '/cron-panel/update' || path === '/cron-panel/delete') {

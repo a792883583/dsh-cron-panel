@@ -22,6 +22,8 @@ export interface CronEntry {
   retries?: number
   /** 重试间隔（秒）。 */
   retryDelaySec?: number
+  /** 最近一次执行状态（根据日志分析）：'ok' | 'err' | 'none'。 */
+  lastStatus?: 'ok' | 'err' | 'none'
 }
 
 /** crontab 解析视图。 */

@@ -7,7 +7,8 @@ A scheduled-tasks panel for the DSH Web GUI: sits between the workspace selector
 ## Features
 
 - **Sidebar panel**: below the workspace selector, above settings; ➕ on the header to create, ▾ to collapse (collapses to a slim title bar; state is persisted)
-- **Separate sections**: DSH tasks (created via the panel, managed with markers) and system tasks (existing crontab entries) are shown apart
+- **Separate sections & status indicators**: DSH tasks and system tasks are shown apart, with status indicator dots (🟢 success / 🔴 failure / ⚪ not run yet)
+- **Execution logs & one-click clear**: panel-created tasks log automatically with live refresh and a one-click "Clear logs" button to prevent file bloat
 - **Natural-language creation**: type “run backup every day at 9am”, “clean temp files every 30 minutes”, “every Monday at 8pm” and it is parsed into a cron expression automatically (Chinese & English, 17+ patterns); manual expressions also supported
 - **Full-screen details**: click a task to open a full-screen overlay over the conversation, close via the top-right ✕; edit / save / delete / enable-toggle supported
 - **Next-run preview**: while editing, the next 5 execution times are shown automatically from the cron expression (avoids typos)
@@ -15,7 +16,7 @@ A scheduled-tasks panel for the DSH Web GUI: sits between the workspace selector
 - **Run now**: in task details, click "Run now" to execute the command once immediately (not through cron scheduling) and see the exit code and output in real time — verify a task right after creating it instead of waiting for its schedule
 - **Auto-retry on failure**: configure the number of retries and the delay between attempts (the command runs in a subshell, so a failed exit code triggers a retry)
 - **Auto-backup before write**: every crontab rewrite is preceded by a backup of the current content to `~/.local/share/dsh-cron-backups/` (keeps the latest 20), so mistakes can always be rolled back
-- **Execution logs**: panel-created tasks log automatically (`~/Library/Logs/dsh-cron-<id>.log`); system tasks reuse their existing log redirection; newest first, refreshable
+
 - **Multilingual**: follows the DSH Web UI language (Chinese / English); Spanish browsers automatically get Spanish copy; defaults to Simplified Chinese
 - Light / dark theme follows the DSH Web GUI
 
