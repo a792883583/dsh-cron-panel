@@ -39,6 +39,7 @@ const STYLE = `
   color:var(--cp-accent); white-space:nowrap; flex:none; }
 .dsh-cron-item .cmd { flex:1; min-width:0; white-space:nowrap; overflow:hidden;
   text-overflow:ellipsis; color:var(--cp-fg); }
+.dsh-cron-platform-icon { font-size:10px; opacity:0.85; flex:none; margin-left:2px; }
 .dsh-cron-item .off { opacity:0.5; text-decoration:line-through; }
 .dsh-cron-item .del { color:var(--cp-danger); }
 .dsh-cron-hint { padding:6px 10px 8px; color:var(--cp-muted); line-height:1.6; }
@@ -155,16 +156,31 @@ export function CronPanel(props: {
   )
 }
 
+const PLATFORM_EMOJI: Record<string, string> = {
+  telegram: '✈️',
+  discord: '🎮',
+  'wecom-aibot': '🤖',
+  email: '📧',
+}
+
 /** 单条任务行。 */
 function CronRow(props: { entry: CronEntry; onOpen: (entry: CronEntry) => void }): React.ReactElement {
   const { entry, onOpen } = props
   const st = entry.lastStatus ?? 'none'
+  const icon = entry.notify?.platform ? PLATFORM_EMOJI[entry.notify.platform] ?? '🔔' : null
+  const tooltip = [
+    entry.description || entry.command,
+    entry.retries ? `重试: ${entry.retries}次 / ${entry.retryDelaySec}s` : null,
+    entry.notify ? `通知: ${entry.notify.platform} -> ${entry.notify.target}` : null,
+  ].filter(Boolean).join('\n')
+
   return (
-    <div className="dsh-cron-item" title={entry.description || entry.command}
+    <div className="dsh-cron-item" title={tooltip}
       onClick={() => onOpen(entry)}>
       <span className={`dsh-cron-status-dot ${st}`} />
       <span className={`expr${entry.enabled ? '' : ' off'}`}>{entry.expr}</span>
       <span className={`cmd${entry.enabled ? '' : ' off'}`}>{entry.command}</span>
+      {icon ? <span className="dsh-cron-platform-icon" title={`已绑定 ${entry.notify?.platform} 通知`}>{icon}</span> : null}
       {!entry.enabled ? <span className="del">✕</span> : null}
     </div>
   )
