@@ -58,7 +58,11 @@ const OVERLAY_STYLE = `
 
 const PRESETS: Record<string, string> = {
   everyMinute: '* * * * *',
+  every5Min: '*/5 * * * *',
+  every15Min: '*/15 * * * *',
+  every30Min: '*/30 * * * *',
   hourly: '0 * * * *',
+  workdayMorning: '0 9 * * 1-5',
   daily: '0 0 * * *',
   weekly: '0 0 * * 1',
   monthly: '0 0 1 * *',
@@ -280,7 +284,11 @@ export function DetailOverlay(props: {
           <select className="dsh-cron-input" value={preset} onChange={(event) => pickPreset(event.target.value)}>
             <option value="custom">{t('preset.custom')}</option>
             <option value="everyMinute">{t('preset.everyMinute')}</option>
+            <option value="every5Min">{t('preset.every5Min')}</option>
+            <option value="every15Min">{t('preset.every15Min')}</option>
+            <option value="every30Min">{t('preset.every30Min')}</option>
             <option value="hourly">{t('preset.hourly')}</option>
+            <option value="workdayMorning">{t('preset.workdayMorning')}</option>
             <option value="daily">{t('preset.daily')}</option>
             <option value="weekly">{t('preset.weekly')}</option>
             <option value="monthly">{t('preset.monthly')}</option>

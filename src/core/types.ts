@@ -24,6 +24,10 @@ export interface CronEntry {
   retryDelaySec?: number
   /** 最近一次执行状态（根据日志分析）：'ok' | 'err' | 'none'。 */
   lastStatus?: 'ok' | 'err' | 'none'
+  /** 工作目录 (CWD)。 */
+  cwd?: string
+  /** 任务执行超时时间（秒，0 = 不限制）。 */
+  timeoutSec?: number
 }
 
 /** crontab 解析视图。 */

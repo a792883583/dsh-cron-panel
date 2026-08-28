@@ -1,6 +1,6 @@
 {
   "name": "dsh-cron-panel",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "DSH web GUI scheduled-tasks panel: manage DSH agent reminders and system crontab entries from a sidebar panel with full-screen detail editing.",
   "license": "MIT",
   "author": "Jaden Tang <jaden.tang@sjfood.com>",
