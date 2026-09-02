@@ -11,38 +11,55 @@ import { useT } from './i18n.ts'
 import { parseNaturalLanguage } from './nl-cron.ts'
 
 const OVERLAY_STYLE = `
-.dsh-cron-overlay { position:fixed; inset:0; z-index:1200; background:rgba(0,0,0,0.45);
-  display:flex; align-items:center; justify-content:center; }
-.dsh-cron-card { width:min(560px, calc(100vw - 48px)); max-height:calc(100vh - 64px); overflow:auto;
-  background:var(--cp-bg, #ffffff); border:1px solid var(--cp-border, rgba(128,128,128,0.25));
-  border-radius:12px; box-shadow:0 16px 48px rgba(0,0,0,0.3); padding:18px 20px;
-  --cp-fg:#24292f; --cp-muted:#6e7781; --cp-border:rgba(128,128,128,0.25);
-  --cp-accent:#1976d2; --cp-danger:#cf222e; --cp-field:#ffffff; }
-[data-ds-dark-theme] .dsh-cron-card { --cp-fg:#d1d9e0; --cp-muted:#9198a1;
-  --cp-border:rgba(255,255,255,0.14); --cp-accent:#58a6ff; --cp-danger:#f85149;
-  --cp-field:#21262d; }
+.dsh-cron-overlay { position:fixed; inset:0; z-index:1200; background:rgba(0,0,0,0.55);
+  display:flex; align-items:center; justify-content:center; backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px); }
+.dsh-cron-card { width:min(580px, calc(100vw - 48px)); max-height:calc(100vh - 64px); overflow:auto;
+  background:#ffffff; border:1px solid rgba(128,128,128,0.2);
+  border-radius:14px; box-shadow:0 20px 48px rgba(0,0,0,0.25); padding:20px 24px;
+  --cp-bg:#ffffff; --cp-fg:#0f172a; --cp-muted:#64748b; --cp-border:#e2e8f0;
+  --cp-accent:#2563eb; --cp-danger:#ef4444; --cp-field:#ffffff; }
+[data-theme="dark"] .dsh-cron-card,
+[data-ds-dark-theme] .dsh-cron-card,
+html.dark .dsh-cron-card {
+  background:#1e293b !important;
+  --cp-bg:#1e293b; --cp-fg:#f8fafc; --cp-muted:#94a3b8;
+  --cp-border:#334155; --cp-accent:#3b82f6; --cp-danger:#f87171;
+  --cp-field:#0f172a;
+  box-shadow:0 25px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .dsh-cron-card {
+    background:#1e293b !important;
+    --cp-bg:#1e293b; --cp-fg:#f8fafc; --cp-muted:#94a3b8;
+    --cp-border:#334155; --cp-accent:#3b82f6; --cp-danger:#f87171;
+    --cp-field:#0f172a;
+    box-shadow:0 25px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08);
+  }
+}
 .dsh-cron-card * { box-sizing:border-box; }
-.dsh-cron-card-head { display:flex; align-items:center; gap:8px; margin-bottom:14px; }
-.dsh-cron-card-head .title { flex:1; font-weight:600; font-size:14px; color:var(--cp-fg); }
+.dsh-cron-card-head { display:flex; align-items:center; gap:8px; margin-bottom:16px; }
+.dsh-cron-card-head .title { flex:1; font-weight:600; font-size:15px; color:var(--cp-fg); }
 .dsh-cron-close { border:none; background:transparent; color:var(--cp-muted); cursor:pointer;
   width:28px; height:28px; border-radius:8px; display:flex; align-items:center;
-  justify-content:center; padding:0; }
+  justify-content:center; padding:0; font-size:15px; }
 .dsh-cron-close:hover { background:rgba(128,128,128,0.12); color:var(--cp-fg); }
-.dsh-cron-field { margin-bottom:12px; }
-.dsh-cron-field label { display:block; font-size:12px; color:var(--cp-muted); margin-bottom:4px; }
-.dsh-cron-input { width:100%; padding:7px 10px; font-size:13px; color:var(--cp-fg);
+.dsh-cron-field { margin-bottom:14px; }
+.dsh-cron-field label { display:block; font-size:12px; font-weight:600; color:var(--cp-muted); margin-bottom:5px; }
+.dsh-cron-input { width:100%; padding:8px 12px; font-size:13px; color:var(--cp-fg);
   background:var(--cp-field); border:1px solid var(--cp-border); border-radius:8px; outline:none; }
 .dsh-cron-input:focus { border-color:var(--cp-accent); }
 .dsh-cron-input.mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
-.dsh-cron-hint { font-size:11px; color:var(--cp-muted); margin-top:4px; }
+.dsh-cron-hint { font-size:11px; color:var(--cp-muted); margin-top:4px; line-height:1.4; }
 .dsh-cron-switch { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--cp-fg);
   cursor:pointer; user-select:none; }
-.dsh-cron-actions { display:flex; gap:8px; margin-top:16px; align-items:center; }
+.dsh-cron-actions { display:flex; gap:10px; margin-top:20px; align-items:center; }
 .dsh-cron-btn { border:1px solid var(--cp-border); background:transparent; color:var(--cp-fg);
-  border-radius:8px; padding:7px 14px; font-size:13px; cursor:pointer; }
+  border-radius:8px; padding:8px 16px; font-size:13px; font-weight:500; cursor:pointer; }
 .dsh-cron-btn:hover { background:rgba(128,128,128,0.08); }
-.dsh-cron-btn.primary { background:var(--cp-accent); border-color:var(--cp-accent); color:#fff; }
-.dsh-cron-btn.danger { color:var(--cp-danger); }
+.dsh-cron-btn.primary { background:var(--cp-accent); border-color:var(--cp-accent); color:#fff; font-weight:600; }
+.dsh-cron-btn.danger { color:var(--cp-danger); border-color:transparent; }
+.dsh-cron-btn.danger:hover { background:rgba(239,68,68,0.1); }
 .dsh-cron-btn:disabled { opacity:0.5; cursor:default; }
 .dsh-cron-msg { flex:1; font-size:12px; color:var(--cp-muted); text-align:right;
   white-space:pre-wrap; word-break:break-all; }
@@ -53,7 +70,7 @@ const OVERLAY_STYLE = `
   white-space:pre-wrap; word-break:break-all; }
 .dsh-cron-log-empty { padding:10px; font-size:12px; color:var(--cp-muted); }
 .dsh-cron-msg.err { color:var(--cp-danger); }
-.dsh-cron-msg.ok { color:#1a7f37; }
+.dsh-cron-msg.ok { color:#10b981; }
 `
 
 const PRESETS: Record<string, string> = {
