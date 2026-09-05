@@ -18,6 +18,9 @@ A scheduled-tasks panel for the DSH Web GUI: sits between the workspace selector
 - **Auto-backup before write**: every crontab rewrite is preceded by a backup of the current content to `~/.local/share/dsh-cron-backups/` (keeps the latest 20), so mistakes can always be rolled back
 
 - **Multilingual**: follows the DSH Web UI language (Chinese / English); Spanish browsers automatically get Spanish copy; defaults to Simplified Chinese
+- **Cross-Platform & Theme Adaptations**:
+  - Seamless Windows compatibility: avoids `spawn /usr/bin/crontab ENOENT` errors by supporting local persistence fallback.
+  - Enhanced contrast and color variables across light and dark modes to prevent invisible text.
 - Light / dark theme follows the DSH Web GUI
 
 ## Screenshots

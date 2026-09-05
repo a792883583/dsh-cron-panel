@@ -11,20 +11,25 @@ import type { CronPanelApi } from './api.ts'
 import { useT } from './i18n.ts'
 
 const STYLE = `
-.dsh-cron-panel { --cp-fg:#24292f; --cp-muted:#6e7781; --cp-border:rgba(128,128,128,0.25);
-  --cp-hover:rgba(0,0,0,0.05); --cp-bg:#f6f8fa; --cp-accent:#2563eb; --cp-danger:#ef4444;
-  color:var(--cp-fg); font-size:12px; }
+.dsh-cron-panel {
+  --cp-fg: currentColor;
+  --cp-muted: rgba(140, 149, 159, 0.9);
+  --cp-border: rgba(128, 128, 128, 0.2);
+  --cp-hover: rgba(128, 128, 128, 0.1);
+  --cp-bg: transparent;
+  --cp-accent: #2563eb;
+  --cp-danger: #ef4444;
+  color: var(--cp-fg);
+  font-size: 12px;
+}
 [data-theme="dark"] .dsh-cron-panel,
 [data-ds-dark-theme] .dsh-cron-panel,
 html.dark .dsh-cron-panel {
-  --cp-fg:#f8fafc; --cp-muted:#94a3b8;
-  --cp-border:rgba(255,255,255,0.12); --cp-hover:rgba(255,255,255,0.08);
-  --cp-bg:#1e293b; --cp-accent:#3b82f6; --cp-danger:#f87171; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .dsh-cron-panel {
-    --cp-fg:#f8fafc; --cp-muted:#94a3b8;
-    --cp-border:rgba(255,255,255,0.12); --cp-hover:rgba(255,255,255,0.08);
-    --cp-bg:#1e293b; --cp-accent:#3b82f6; --cp-danger:#f87171; }
+  --cp-muted: #94a3b8;
+  --cp-border: rgba(255, 255, 255, 0.12);
+  --cp-hover: rgba(255, 255, 255, 0.08);
+  --cp-accent: #3b82f6;
+  --cp-danger: #f87171;
 }
 .dsh-cron-panel * { box-sizing:border-box; }
 .dsh-cron-head { display:flex; align-items:center; gap:4px; padding:8px 10px 6px;

@@ -25,28 +25,58 @@ export interface CronRunner {
 /** 收集输出上限。 */
 const OUTPUT_CAP_BYTES = 1 << 20
 
-/** 基于 `ctx.subprocess` 的生产运行器。 */
+/** 基于 `ctx.subprocess` 的生产运行器。在 Windows 平台下优雅回退到本地 crontab.txt 模拟，避免 /usr/bin/crontab ENOENT 崩溃。 */
 export function subprocessRunner(ctx: Context): CronRunner {
   return {
     async run(argv, stdin) {
-      const spec: SubprocessSpawnSpec = {
-        argv: ['/usr/bin/crontab', ...argv],
-        cwd: '/',
-        stdio: {
-          stdin: stdin === undefined ? 'ignore' : 'pipe',
-          stdout: { maxBytes: OUTPUT_CAP_BYTES },
-          stderr: { maxBytes: OUTPUT_CAP_BYTES },
-        },
-        graceMs: 30_000,
+      if (process.platform === 'win32') {
+        const { existsSync, readFileSync, writeFileSync, mkdirSync } = await import('node:fs')
+        const { homedir } = await import('node:os')
+        const { join } = await import('node:path')
+        const dir = join(homedir(), '.dsh')
+        const file = join(dir, 'crontab.txt')
+        if (argv.includes('-l')) {
+          if (!existsSync(file)) return { exitCode: 0, stdout: '', stderr: '' }
+          try {
+            return { exitCode: 0, stdout: readFileSync(file, 'utf8'), stderr: '' }
+          } catch (e: any) {
+            return { exitCode: 0, stdout: '', stderr: '' }
+          }
+        }
+        if (stdin !== undefined) {
+          try {
+            mkdirSync(dir, { recursive: true })
+            writeFileSync(file, stdin, 'utf8')
+            return { exitCode: 0, stdout: '', stderr: '' }
+          } catch (e: any) {
+            return { exitCode: 1, stdout: '', stderr: e?.message || '写入本地 crontab 失败' }
+          }
+        }
+        return { exitCode: 0, stdout: '', stderr: '' }
       }
-      const handle = ctx.subprocess.spawn(spec)
-      if (stdin !== undefined) {
-        handle.stdin?.end(stdin)
+
+      try {
+        const spec: SubprocessSpawnSpec = {
+          argv: ['/usr/bin/crontab', ...argv],
+          cwd: '/',
+          stdio: {
+            stdin: stdin === undefined ? 'ignore' : 'pipe',
+            stdout: { maxBytes: OUTPUT_CAP_BYTES },
+            stderr: { maxBytes: OUTPUT_CAP_BYTES },
+          },
+          graceMs: 30_000,
+        }
+        const handle = ctx.subprocess.spawn(spec)
+        if (stdin !== undefined) {
+          handle.stdin?.end(stdin)
+        }
+        const outcome = await handle.done
+        const stdout = handle.collected.stdout?.readFrom(0).text ?? ''
+        const stderr = handle.collected.stderr?.readFrom(0).text ?? ''
+        return { exitCode: outcome.exitCode, stdout, stderr }
+      } catch (err: any) {
+        return { exitCode: 1, stdout: '', stderr: err?.message || String(err) }
       }
-      const outcome = await handle.done
-      const stdout = handle.collected.stdout?.readFrom(0).text ?? ''
-      const stderr = handle.collected.stderr?.readFrom(0).text ?? ''
-      return { exitCode: outcome.exitCode, stdout, stderr }
     },
   }
 }

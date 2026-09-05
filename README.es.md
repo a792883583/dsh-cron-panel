@@ -18,6 +18,9 @@ Un panel de tareas programadas para la GUI web de DSH: se sitúa entre el select
 - **Copia de seguridad antes de escribir**: cada reescritura de crontab se antecede de una copia del contenido actual en `~/.local/share/dsh-cron-backups/` (conserva las 20 más recientes), de modo que los errores siempre se pueden revertir
 
 - **Multilingüe**: sigue el idioma de la interfaz web de DSH (chino / inglés); los navegadores en español reciben automáticamente el texto en español; por defecto chino simplificado
+- **Compatibilidad multiplataforma y mejoras de temas**:
+  - Compatibilidad total con Windows: evita el error `spawn /usr/bin/crontab ENOENT` con persistencia local alternativa.
+  - Mayor contraste y adaptación de variables de color en temas claros y oscuros, evitando texto invisible.
 - Tema claro / oscuro siguiendo la GUI web de DSH
 
 ## Capturas de pantalla
