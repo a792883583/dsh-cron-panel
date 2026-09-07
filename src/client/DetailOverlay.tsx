@@ -118,6 +118,13 @@ export function DetailOverlay(props: {
   const isNew = entry === null
   const [description, setDescription] = useState(entry?.description ?? '')
   const [expr, setExpr] = useState(entry?.expr ?? PRESETS.daily)
+  const isAgentCmd = (entry?.command ?? '').startsWith('dsh --profile headless')
+  const [taskMode, setTaskMode] = useState<'shell' | 'agent'>(isAgentCmd ? 'agent' : 'shell')
+  const [agentPrompt, setAgentPrompt] = useState(() => {
+    if (!isAgentCmd) return ''
+    const m = (entry?.command ?? '').match(/dsh --profile headless\s+"([^"]+)"/)
+    return m ? m[1] : ''
+  })
   const [command, setCommand] = useState(entry?.command ?? '')
   const [enabled, setEnabled] = useState(entry?.enabled ?? true)
   // 完成后主动通知：平台 + 目标（走 message-gateway /gateway/push）。
@@ -187,7 +194,11 @@ export function DetailOverlay(props: {
   }
 
   const save = useCallback(async (): Promise<void> => {
-    if (expr.trim() === '' || command.trim() === '') {
+    const finalCommand = taskMode === 'agent'
+      ? `dsh --profile headless "${agentPrompt.trim().replace(/"/g, '\\"')}"`
+      : command.trim()
+
+    if (expr.trim() === '' || finalCommand === '') {
       setMessage({ text: t('err.invalid'), kind: 'err' })
       return
     }
@@ -196,7 +207,7 @@ export function DetailOverlay(props: {
     const input = {
       description: description.trim(),
       expr: expr.trim(),
-      command: command.trim(),
+      command: finalCommand,
       enabled,
       notify: notifyTarget.trim() !== '' ? { platform: notifyPlatform, target: notifyTarget.trim() } : null,
       retries,
@@ -233,14 +244,18 @@ export function DetailOverlay(props: {
 
   /** 立即运行：以当前表单的命令执行一次（不经 cron 调度），显示输出。 */
   const runNow = useCallback(async (): Promise<void> => {
-    if (command.trim() === '' || runBusy) return
+    const finalCommand = taskMode === 'agent'
+      ? `dsh --profile headless "${agentPrompt.trim().replace(/"/g, '\\"')}"`
+      : command.trim()
+
+    if (finalCommand === '' || runBusy) return
     setRunBusy(true)
     setRunOutput(null)
     const snap: CronEntry = {
       id: entry?.id ?? 'draft',
       description: description.trim(),
       expr: expr.trim(),
-      command: command.trim(),
+      command: finalCommand,
       enabled,
       managed: entry?.managed ?? false,
       lines: entry?.lines ?? [],
@@ -252,7 +267,7 @@ export function DetailOverlay(props: {
     } else {
       setRunOutput({ exitCode: null, stdout: '', stderr: result.error.message })
     }
-  }, [api, entry, description, expr, command, enabled, runBusy])
+  }, [api, entry, description, expr, command, enabled, runBusy, taskMode, agentPrompt])
 
   return (
     <div className="dsh-cron-overlay" onClick={onClose}>
@@ -328,11 +343,38 @@ export function DetailOverlay(props: {
         </div>
 
         <div className="dsh-cron-field">
-          <label>{t('detail.command')}</label>
-          <input className="dsh-cron-input mono" value={command} spellCheck={false}
-            placeholder={t('detail.command.placeholder')}
-            onChange={(event) => setCommand(event.target.value)} />
+          <label>{t('detail.mode')}</label>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
+              <input type="radio" name="taskMode" checked={taskMode === 'shell'}
+                onChange={() => setTaskMode('shell')} />
+              {t('detail.mode.shell')}
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
+              <input type="radio" name="taskMode" checked={taskMode === 'agent'}
+                onChange={() => setTaskMode('agent')} />
+              {t('detail.mode.agent')}
+            </label>
+          </div>
         </div>
+
+        {taskMode === 'agent' ? (
+          <div className="dsh-cron-field">
+            <label>Agent Prompt</label>
+            <textarea className="dsh-cron-input mono" rows={3} value={agentPrompt}
+              placeholder={t('detail.agentPrompt.placeholder')}
+              style={{ resize: 'vertical' }}
+              onChange={(event) => setAgentPrompt(event.target.value)} />
+            <div className="dsh-cron-hint">{t('detail.agentPrompt.hint')}</div>
+          </div>
+        ) : (
+          <div className="dsh-cron-field">
+            <label>{t('detail.command')}</label>
+            <input className="dsh-cron-input mono" value={command} spellCheck={false}
+              placeholder={t('detail.command.placeholder')}
+              onChange={(event) => setCommand(event.target.value)} />
+          </div>
+        )}
 
         <div className="dsh-cron-field">
           <label className="dsh-cron-switch">
