@@ -56,6 +56,11 @@ export class CronPanelApi {
     return this.post('/cron-panel/next', { expr })
   }
 
+  /** 自然语言解析（LLM 优先）；返回 fallback 表示不可用，由调用方回退本地正则。 */
+  parseNl(text: string): Promise<Envelope<{ expr: string; task: string | null }>> {
+    return this.post('/cron-panel/parse-nl', { text })
+  }
+
   /** 立即运行一次（执行任务的纯命令，返回退出码与输出）。 */
   runNow(entry: CronEntry): Promise<Envelope<{ exitCode: number | null; stdout: string; stderr: string }>> {
     return this.post('/cron-panel/run-now', entry)

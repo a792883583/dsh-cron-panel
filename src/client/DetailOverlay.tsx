@@ -4,11 +4,11 @@
  * @module dsh-cron-panel/client/DetailOverlay
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CronEntry } from '../core/types.ts'
 import type { CronPanelApi } from './api.ts'
 import { useT } from './i18n.ts'
-import { parseNaturalLanguage } from './nl-cron.ts'
+import { parseNaturalLanguage, parseNaturalLanguageTask } from './nl-cron.ts'
 
 const OVERLAY_STYLE = `
 .dsh-cron-overlay { position:fixed; inset:0; z-index:1200; background:rgba(0,0,0,0.55);
@@ -50,6 +50,8 @@ html.dark .dsh-cron-card {
   background:var(--cp-field); border:1px solid var(--cp-border); border-radius:8px; outline:none; }
 .dsh-cron-input:focus { border-color:var(--cp-accent); }
 .dsh-cron-input.mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+.dsh-cron-input.invalid { border-color:var(--cp-danger); }
+.dsh-cron-input.invalid:focus { border-color:var(--cp-danger); box-shadow:0 0 0 2px rgba(239,68,68,0.15); }
 .dsh-cron-hint { font-size:11px; color:var(--cp-muted); margin-top:4px; line-height:1.4; }
 .dsh-cron-switch { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--cp-fg);
   cursor:pointer; user-select:none; }
@@ -145,9 +147,61 @@ export function DetailOverlay(props: {
   // 立即运行：{ exitCode, stdout, stderr }；null = 尚未运行。
   const [runOutput, setRunOutput] = useState<{ exitCode: number | null; stdout: string; stderr: string } | null>(null)
   const [runBusy, setRunBusy] = useState(false)
+  // 逐字段校验结果：只高亮/提示真正缺失的那一项。
+  const [invalid, setInvalid] = useState<{ expr: boolean; body: boolean }>({ expr: false, body: false })
+  const exprRef = useRef<HTMLInputElement | null>(null)
+  const commandRef = useRef<HTMLInputElement | null>(null)
+  const agentRef = useRef<HTMLTextAreaElement | null>(null)
+  // 自然语言自动填充：只有用户没手动碰过对应字段时才覆盖，绝不抢用户已经输入的内容。
+  const taskModeTouched = useRef(false)
+  const agentPromptTouched = useRef(false)
+  const [autoTask, setAutoTask] = useState<string | null>(null)
+  // LLM 精修进行中：慢模型要几十秒，需要让用户看到「AI 正在解析」而不是以为没反应。
+  const [nlPending, setNlPending] = useState(false)
+  // 自然语言解析请求序号：丢弃过期响应，避免慢响应覆盖新输入。
+  const nlSeq = useRef(0)
 
   // 自然语言实时解析：命中则自动填入表达式。
   const nlResult = nl.trim() === '' ? null : parseNaturalLanguage(nl)
+
+  /** 用户开始补填某个字段时，撤掉该字段的红框与底部报错。 */
+  const clearField = (kind: 'expr' | 'body'): void => {
+    if (!invalid[kind]) return
+    setInvalid((prev) => ({ ...prev, [kind]: false }))
+    setMessage(null)
+  }
+
+  /**
+   * 用 LLM 精修本地正则的结果，命中则用模型结果覆盖（多语言/生僻句式更准）。
+   * 任何失败都静默保留本地结果，不打扰用户。用递增序号丢弃过期响应，避免慢响应
+   * 覆盖新输入。
+   */
+  const refineWithLlm = useCallback(async (text: string, localExpr: string | null): Promise<void> => {
+    const seq = nlSeq.current + 1
+    nlSeq.current = seq
+    setNlPending(true)
+    await new Promise((resolve) => window.setTimeout(resolve, 600))
+    if (nlSeq.current !== seq) return // 期间又有新输入，丢弃这次（新请求会自己管 pending）
+    const result = await api.parseNl(text)
+    if (nlSeq.current !== seq) return // 过期响应：保留本地结果
+    setNlPending(false)
+    if (result.ok === false) return // LLM 不可用：静默保留本地正则结果
+    const { expr, task } = result.value
+    if (typeof expr === 'string' && expr !== '') {
+      setExpr(expr)
+      setPreset('custom')
+      clearField('expr')
+    }
+    if (task !== null && task !== '') {
+      if (!agentPromptTouched.current) setAgentPrompt(task)
+      if (!taskModeTouched.current) setTaskMode('agent')
+      setAutoTask(task)
+      clearField('body')
+    } else {
+      // LLM 认为只有调度没有动作：清掉本地正则可能误判的任务内容。
+      setAutoTask(null)
+    }
+  }, [api, clearField])
 
   // 编辑模式打开时自动加载执行记录。
   const loadLogs = useCallback(async (): Promise<void> => {
@@ -198,10 +252,28 @@ export function DetailOverlay(props: {
       ? `dsh --profile headless "${agentPrompt.trim().replace(/"/g, '\\"')}"`
       : command.trim()
 
-    if (expr.trim() === '' || finalCommand === '') {
-      setMessage({ text: t('err.invalid'), kind: 'err' })
+    // 逐字段校验：只报真正缺的那一项，别再出现「表达式明明填了却提示请填写表达式」。
+    const exprMissing = expr.trim() === ''
+    // Agent 模式下 finalCommand 是拼出来的 `dsh --profile headless "..."`，
+    // 即使 Prompt 为空也非空字符串——必须单独校验，否则会建出跑空 Prompt 的任务。
+    const bodyMissing = taskMode === 'agent' ? agentPrompt.trim() === '' : finalCommand === ''
+    if (exprMissing || bodyMissing) {
+      setInvalid({ expr: exprMissing, body: bodyMissing })
+      setMessage({
+        text: exprMissing && bodyMissing
+          ? t('err.invalid')
+          : exprMissing
+            ? t('err.invalid.expr')
+            : t(taskMode === 'agent' ? 'err.invalid.agentPrompt' : 'err.invalid.command'),
+        kind: 'err',
+      })
+      // 滚动并聚焦到第一个缺失的字段，用户不用自己找。
+      const target = exprMissing ? exprRef.current : taskMode === 'agent' ? agentRef.current : commandRef.current
+      target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      target?.focus()
       return
     }
+    setInvalid({ expr: false, body: false })
     setBusy(true)
     setMessage(null)
     const input = {
@@ -224,7 +296,7 @@ export function DetailOverlay(props: {
     } else {
       setMessage({ text: result.error.message, kind: 'err' })
     }
-  }, [api, entry, description, expr, command, enabled, notifyPlatform, notifyTarget, retries, retryDelaySec, isNew, t, onSaved, onClose])
+  }, [api, entry, description, expr, command, enabled, notifyPlatform, notifyTarget, retries, retryDelaySec, taskMode, agentPrompt, isNew, t, onSaved, onClose])
 
   const remove = useCallback(async (): Promise<void> => {
     if (entry === null) return
@@ -248,7 +320,7 @@ export function DetailOverlay(props: {
       ? `dsh --profile headless "${agentPrompt.trim().replace(/"/g, '\\"')}"`
       : command.trim()
 
-    if (finalCommand === '' || runBusy) return
+    if (runBusy || (taskMode === 'agent' ? agentPrompt.trim() === '' : finalCommand === '')) return
     setRunBusy(true)
     setRunOutput(null)
     const snap: CronEntry = {
@@ -296,18 +368,41 @@ export function DetailOverlay(props: {
             onChange={(event) => {
               const value = event.target.value
               setNl(value)
-              if (value.trim() !== '') {
-                const parsed = parseNaturalLanguage(value)
-                if (parsed !== null) {
-                  setExpr(parsed)
-                  setPreset('custom')
-                }
+              const text = value.trim()
+              if (text === '') {
+                setAutoTask(null)
+                setNlPending(false)
+                return
               }
+              // ① 本地正则先立刻出结果（零延迟），② 再异步用 LLM 结果覆盖。
+              const local = parseNaturalLanguage(text)
+              if (local !== null) {
+                setExpr(local)
+                setPreset('custom')
+                clearField('expr')
+              }
+              const task = parseNaturalLanguageTask(text)
+              setAutoTask(task)
+              if (task !== null) {
+                if (!agentPromptTouched.current) setAgentPrompt(task)
+                if (!taskModeTouched.current) setTaskMode('agent')
+                clearField('body')
+              }
+              // 触发 LLM 精修（新请求会自己打开 pending，结束或过期时关掉）
+              void refineWithLlm(text, local)
             }} />
           {nl.trim() !== '' ? (
             <div className="dsh-cron-hint" style={nlResult === null ? { color: 'var(--cp-danger)' } : undefined}>
               {nlResult === null ? t('nl.unrecognized') : `${t('nl.preview')}：${nlResult}`}
             </div>
+          ) : null}
+          {autoTask !== null ? (
+            <div className="dsh-cron-hint" style={{ color: 'var(--cp-accent)' }}>
+              {t('nl.taskFilled')}：{autoTask}
+            </div>
+          ) : null}
+          {nlPending ? (
+            <div className="dsh-cron-hint" style={{ color: 'var(--cp-muted)' }}>{t('nl.pending')}</div>
           ) : null}
         </div>
 
@@ -329,12 +424,18 @@ export function DetailOverlay(props: {
 
         <div className="dsh-cron-field">
           <label>{t('detail.expr')}</label>
-          <input className="dsh-cron-input mono" value={expr} spellCheck={false}
+          <input ref={exprRef} className={`dsh-cron-input mono${invalid.expr ? ' invalid' : ''}`}
+            value={expr} spellCheck={false}
             onChange={(event) => {
               setExpr(event.target.value)
               setPreset('custom')
+              clearField('expr')
             }} />
-          <div className="dsh-cron-hint">{t('expr.hint')}</div>
+          {invalid.expr ? (
+            <div className="dsh-cron-hint" style={{ color: 'var(--cp-danger)' }}>{t('err.invalid.expr')}</div>
+          ) : (
+            <div className="dsh-cron-hint">{t('expr.hint')}</div>
+          )}
           {nextTimes !== null && nextTimes.length > 0 ? (
             <div className="dsh-cron-hint" style={{ color: 'var(--cp-accent)' }}>
               {t('detail.next')}：{nextTimes.slice(0, 5).map(formatRunTime).join('，')}
@@ -347,12 +448,18 @@ export function DetailOverlay(props: {
           <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
               <input type="radio" name="taskMode" checked={taskMode === 'shell'}
-                onChange={() => setTaskMode('shell')} />
+                onChange={() => {
+                  taskModeTouched.current = true
+                  setTaskMode('shell')
+                }} />
               {t('detail.mode.shell')}
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 12 }}>
               <input type="radio" name="taskMode" checked={taskMode === 'agent'}
-                onChange={() => setTaskMode('agent')} />
+                onChange={() => {
+                  taskModeTouched.current = true
+                  setTaskMode('agent')
+                }} />
               {t('detail.mode.agent')}
             </label>
           </div>
@@ -361,18 +468,33 @@ export function DetailOverlay(props: {
         {taskMode === 'agent' ? (
           <div className="dsh-cron-field">
             <label>Agent Prompt</label>
-            <textarea className="dsh-cron-input mono" rows={3} value={agentPrompt}
+            <textarea ref={agentRef} className={`dsh-cron-input mono${invalid.body ? ' invalid' : ''}`} rows={3} value={agentPrompt}
               placeholder={t('detail.agentPrompt.placeholder')}
               style={{ resize: 'vertical' }}
-              onChange={(event) => setAgentPrompt(event.target.value)} />
-            <div className="dsh-cron-hint">{t('detail.agentPrompt.hint')}</div>
+              onChange={(event) => {
+                agentPromptTouched.current = true
+                setAgentPrompt(event.target.value)
+                clearField('body')
+              }} />
+            {invalid.body ? (
+              <div className="dsh-cron-hint" style={{ color: 'var(--cp-danger)' }}>{t('err.invalid.agentPrompt')}</div>
+            ) : (
+              <div className="dsh-cron-hint">{t('detail.agentPrompt.hint')}</div>
+            )}
           </div>
         ) : (
           <div className="dsh-cron-field">
             <label>{t('detail.command')}</label>
-            <input className="dsh-cron-input mono" value={command} spellCheck={false}
+            <input ref={commandRef} className={`dsh-cron-input mono${invalid.body ? ' invalid' : ''}`}
+              value={command} spellCheck={false}
               placeholder={t('detail.command.placeholder')}
-              onChange={(event) => setCommand(event.target.value)} />
+              onChange={(event) => {
+                setCommand(event.target.value)
+                clearField('body')
+              }} />
+            {invalid.body ? (
+              <div className="dsh-cron-hint" style={{ color: 'var(--cp-danger)' }}>{t('err.invalid.command')}</div>
+            ) : null}
           </div>
         )}
 
@@ -398,7 +520,7 @@ export function DetailOverlay(props: {
               placeholder={t('detail.notify.placeholder')}
               onChange={(event) => setNotifyTarget(event.target.value)} />
           </div>
-          <div className="dsh-cron-hint">{t('detail.notify.hint')}</div>
+          <div className="dsh-cron-hint">{taskMode === 'agent' ? t('detail.notify.agentHint') : t('detail.notify.hint')}</div>
         </div>
 
         <div className="dsh-cron-field">

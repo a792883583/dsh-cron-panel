@@ -14,6 +14,7 @@ import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import type { CronEntry, CronView, OpResult } from '../core/types.ts'
 import { applyOperation, readCrontab, writeCrontab, withRunner, stripRunner, type CronRunner } from './cron-service.ts'
 import { nextRuns } from './cron-next.ts'
+import { parseWithLlm, type NlParseResult } from './nl-llm.ts'
 
 type Envelope<T> = { ok: true; value: T } | { ok: false; error: { code: string; message: string } }
 
@@ -178,8 +179,34 @@ async function detectLastStatus(file: string | null): Promise<'ok' | 'err' | 'no
   }
 }
 
-/** 注册 /cron-panel 各路由。 */
-export function registerCronPanelRoutes(ctx: Context, runner: CronRunner): () => void {
+/**
+ * 取当前默认模型选择（agent-default-model 配置）作为解析用模型。
+ * 取不到就返回 null，调用方静默回退本地正则。
+ */
+function resolveModelSelection(ctx: Context): { provider: string; model: string; reasoningEffort?: string } | null {
+  const service = ctx.get('agentDefaultModel') as
+    | { currentSelection?: () => { provider?: unknown; model?: unknown; reasoningEffort?: unknown } }
+    | undefined
+  if (service === undefined || service === null) return null
+  if (typeof service.currentSelection !== 'function') return null
+  try {
+    const selection = service.currentSelection()
+    const provider = typeof selection.provider === 'string' ? selection.provider : ''
+    const model = typeof selection.model === 'string' ? selection.model : ''
+    if (provider === '' || model === '') return null
+    // 推理档位按用户配置透传；未配置（undefined/null/空串）则不传，交给模型默认。
+    const effort = typeof selection.reasoningEffort === 'string' ? selection.reasoningEffort : ''
+    return effort === '' ? { provider, model } : { provider, model, reasoningEffort: effort }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 注册 /cron-panel 各路由。
+ * @param llm 可选 llm 服务；传 null 时 /cron-panel/parse-nl 走本地正则结果。
+ */
+export function registerCronPanelRoutes(ctx: Context, runner: CronRunner, llm: unknown = null): () => void {
   return ctx.webServer.register({
     kind: 'prefix',
     path: '/cron-panel',
@@ -224,7 +251,11 @@ export function registerCronPanelRoutes(ctx: Context, runner: CronRunner): () =>
             return
           }
           const enabled = bool(payload, 'enabled', true)
-          const notify = parseNotify(payload)
+          // Agent 任务的「完成后推送」是有害的：agent 跑完本身就是一段长输出，
+          // 再被 withRunner 钩子经 message-gateway 重推一条就成循环噪音。
+          // 关掉通知钩子；想提醒就在 agent prompt 里自己调企微推送工具。
+          const isAgentTask = command.trim().startsWith('dsh --profile headless')
+          const notify = isAgentTask ? null : parseNotify(payload)
           const { retries, retryDelaySec } = parseRetries(payload, { retries: 0, retryDelaySec: 60 })
           const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6)
           const view = await readCrontab(runner)
@@ -239,14 +270,31 @@ export function registerCronPanelRoutes(ctx: Context, runner: CronRunner): () =>
           return
         }
         if (path === '/cron-panel/run-now') {
-          // 立即运行一次：直接执行任务的纯命令（不经 cron 调度），返回退出码与输出。
+          // 立即运行一次：
+          // - shell 命令：直接 spawn 执行，60s 内返回 stdout/stderr/退出码；
+          // - agent prompt 任务（命令形如 `dsh --profile headless "..."`）：
+          //   不真跑子进程，避免 headless 会话几十分钟才返回、用户毫无反馈。
+          //   后续会接入 message-gateway 的会话创建做实时流式；当下明确拒绝，
+          //   让用户改回用 cron 调度或直接看任务日志。
           const entry = payload as Partial<CronEntry> | null
           if (entry === null || typeof entry !== 'object' || typeof entry.command !== 'string' || entry.command.trim() === '') {
             json(res, { ok: false, error: { code: 'internal', message: 'malformed entry' } })
             return
           }
+          const cmd = entry.command.trim()
+          if (cmd.startsWith('dsh --profile headless')) {
+            json(res, {
+              ok: true,
+              value: {
+                exitCode: 0,
+                stdout: '',
+                stderr: 'Agent Prompt 任务请等待到点自动执行（或查看执行记录日志）。当前版本的「立即运行」仅支持 Shell 命令，Agent 任务的实时流式执行将在下个迭代提供。',
+              },
+            })
+            return
+          }
           const spec: SubprocessSpawnSpec = {
-            argv: ['/bin/sh', '-c', entry.command.trim()],
+            argv: ['/bin/sh', '-c', cmd],
             cwd: homedir(),
             stdio: {
               stdin: 'ignore',
@@ -278,6 +326,25 @@ export function registerCronPanelRoutes(ctx: Context, runner: CronRunner): () =>
             return
           }
           json(res, { ok: true, value: { next: result.next.map((d) => d.toISOString()) } })
+          return
+        }
+        if (path === '/cron-panel/parse-nl') {
+          // 自然语言 → { expr, task }：优先 LLM，失败静默回退客户端本地正则。
+          const text = str(payload, 'text') ?? ''
+          if (text.trim() === '') {
+            json(res, { ok: false, error: { code: 'internal', message: 'missing text' } })
+            return
+          }
+          const selection = resolveModelSelection(ctx)
+          const parsed: NlParseResult | null = selection === null
+            ? null
+            : await parseWithLlm(llm, text, selection)
+          if (parsed === null) {
+            // 回退信号：客户端保留自己本地正则的结果，不向用户报错。
+            json(res, { ok: false, error: { code: 'fallback', message: 'llm parse unavailable' } })
+            return
+          }
+          json(res, { ok: true, value: parsed })
           return
         }
         if (path === '/cron-panel/logs') {
@@ -360,8 +427,11 @@ export function registerCronPanelRoutes(ctx: Context, runner: CronRunner): () =>
           }
           const enabled = bool(payload, 'enabled', entryRef.enabled)
           // 通知：payload 显式给了 notify 字段才更新（区分「未传」与「传 null 移除」）。
+          // Agent 任务的完成推送由 agent 自身处理，不走 withRunner。
           const hasNotifyKey = typeof payload === 'object' && payload !== null && 'notify' in (payload as Record<string, unknown>)
-          const finalNotify = hasNotifyKey ? parseNotify(payload) : (entryRef.notify ?? null)
+          const userNotify = hasNotifyKey ? parseNotify(payload) : (entryRef.notify ?? null)
+          const isAgentTask = command.trim().startsWith('dsh --profile headless')
+          const finalNotify = isAgentTask ? null : userNotify
           // 重试：payload 传了数字字段才更新，否则保留原值。
           const { retries, retryDelaySec } = parseRetries(payload, {
             retries: entryRef.retries ?? 0,

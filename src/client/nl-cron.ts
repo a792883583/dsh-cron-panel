@@ -3,6 +3,8 @@
  * 覆盖常见模式：每分钟 / 每 N 分钟 / 每小时 / 每 N 小时 / 每天 / 每周X /
  * 每月 X 号 / 每周末，以及时段词（上午 / 下午 / 晚上…）与 12 小时制修正。
  * 无法解析时返回 null（调用方回退到手动表达式）。
+ * 另提供 parseNaturalLanguageTask：剥离调度片段，抽出「要做什么」，
+ * 供调用方自动填入 Agent Prompt。
  * @module dsh-cron-panel/client/nl-cron
  */
 
@@ -153,4 +155,62 @@ export function parseNaturalLanguage(input: string): string | null {
   if (time !== null) return `${minute} ${hour} * * *`
 
   return null
+}
+
+/**
+ * 「什么时候跑」的片段（与 parseNaturalLanguage 覆盖的模式一一对应）。
+ * 用来把这些片段从原文里剥掉，剩下的就是「要做什么」。
+ */
+const SCHEDULE_PATTERNS: RegExp[] = [
+  // 固定频率
+  /每\s*\d{1,2}\s*分钟/g,
+  /每\s*分钟/g,
+  /every\s+\d{1,2}\s*minutes?/gi,
+  /every\s+minute/gi,
+  /每\s*\d{1,2}\s*小时/g,
+  /每\s*小时/g,
+  /every\s+\d{1,2}\s*hours?/gi,
+  /every\s+hour/gi,
+  // 星期 / 周末
+  // 星期 / 周末（先具体后笼统：前面的模式已消费掉的写法不会在这里重复命中）
+  /每\s*周末/g,
+  /周末/g,
+  /每\s*周[一二三四五六日天]/g,
+  /每个?\s*星期[一二三四五六日天]/g,
+  /每个?\s*星期/g,
+  /每\s*周/g,
+  /weekend/gi,
+  /every\s+(?:mon\w*|tue\w*|wed\w*|thu\w*|fri\w*|sat\w*|sun\w*|day|week)/gi,
+  // 每月 X 号 / 每天
+  /每\s*月\s*(?:\d{1,2}|[一二两三四五六七八九十]{1,3})\s*[号日]/g,
+  /每\s*月/g,
+  /每天|每日/g,
+  /every\s+day/gi,
+  /daily/gi,
+  // 时段词
+  /凌晨|早上|上午|中午|下午|晚上|夜里|夜间|傍晚/g,
+  // 时间点：21:30 / 1点半 / 两点钟 / 9am（尾随的「钟」要一起吃掉，
+  // 否则会像「两点钟」这样留下孤儿「钟」拼进任务内容）
+  /\d{1,2}\s*[:：]\s*\d{2}/g,
+  /(?:\d{1,2}|[一二两三四五六七八九十]{1,3})\s*[点時时]\s*(?:半|\d{1,2}\s*分?)?\s*钟?/g,
+  /\d{1,2}\s*(?:am|pm)/gi,
+  /\bat\b/gi,
+]
+
+/**
+ * 从自然语言里抽出「要做什么」，供调用方自动填入 Agent Prompt。
+ *
+ * 例：`每周三下午1点半提醒我写周报` → `提醒我写周报`；
+ * `每天上午9点运行备份` → `运行备份`。
+ * 只写了调度信息（如 `每周三下午1点半`）而没有任务内容时返回 null，调用方不自动填。
+ */
+export function parseNaturalLanguageTask(input: string): string | null {
+  let rest = input.trim()
+  if (rest === '') return null
+  for (const re of SCHEDULE_PATTERNS) rest = rest.replace(re, ' ')
+  rest = rest.replace(/^[\s,，。;；:：、的在于到]+/, '').replace(/[\s,，。;；:：、]+$/, '').trim()
+  if (rest === '') return null
+  // 至少要有中文/字母/数字，避免只剩标点。
+  if (!/[\u4e00-\u9fa5a-zA-Z0-9]/.test(rest)) return null
+  return rest
 }
