@@ -12,6 +12,12 @@ type Dict = Record<string, string>
 
 const DICTS: Record<Lang, Dict> = {
   zh: {
+    'rail.title': '查看定时任务',
+    'panel.close': '关闭',
+    'list.loading': '加载中…',
+    'list.empty': '暂无定时任务',
+    'list.hint': '点击任务可编辑 · 顶部右上角可新建 · 按 Esc 关闭',
+    'empty.managed': '暂无 DSH 任务',
     'panel.title': '定时任务',
     'panel.collapse': '收起',
     'panel.expand': '展开',
@@ -87,6 +93,12 @@ const DICTS: Record<Lang, Dict> = {
     'detail.logs.empty.system': '该命令未重定向日志，无法查看执行记录',
   },
   en: {
+    'rail.title': 'Scheduled tasks',
+    'panel.close': 'Close',
+    'list.loading': 'Loading…',
+    'list.empty': 'No scheduled tasks',
+    'list.hint': 'Click a task to edit · click + to create · Esc to close',
+    'empty.managed': 'No DSH tasks',
     'panel.title': 'Scheduled tasks',
     'panel.collapse': 'Collapse',
     'panel.expand': 'Expand',
@@ -162,6 +174,12 @@ const DICTS: Record<Lang, Dict> = {
     'detail.logs.empty.system': 'This command does not redirect output to a log file',
   },
   es: {
+    'rail.title': 'Tareas programadas',
+    'panel.close': 'Cerrar',
+    'list.loading': 'Cargando…',
+    'list.empty': 'Sin tareas programadas',
+    'list.hint': 'Haz clic en una tarea para editarla · clic en + para crear · Esc para cerrar',
+    'empty.managed': 'Sin tareas DSH',
     'panel.title': 'Tareas programadas',
     'panel.collapse': 'Contraer',
     'panel.expand': 'Expandir',

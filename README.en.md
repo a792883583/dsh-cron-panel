@@ -29,15 +29,30 @@ A scheduled-tasks panel for the DSH Web GUI: sits between the workspace selector
   - Enhanced contrast and color variables across light and dark modes to prevent invisible text.
 - Light / dark theme follows the DSH Web GUI
 
+
+## Collapsed sidebar state (new in v0.1.13)
+
+When the user collapses the workbench sidebar, the full panel is replaced with a **36×36 theme-adaptive entry button** (at the bottom of the sidebar, just above the Settings button). Clicking it opens a **fullscreen task list overlay**:
+
+- Header shows the total task count, a '+ New' button, and a close button
+- Tasks are grouped into  and , each row with a status dot (🟢 ok / 🔴 err / ⚪ none)
+- Click any row to open the  for editing; press  to close
+- Data source is the same backend  parsing as the expanded state
+- Button is theme-adaptive (light: very faint gray bg; dark: semi-transparent white bg)
+
 ## Screenshots
 
 **Sidebar panel** (DSH / system sections + add + collapse):
 
-![Scheduled tasks panel](docs/cron-panel.png)
+![Scheduled tasks panel](docs/cron-panel.png?v=0.1.13)
+
+**Collapsed sidebar + task list overlay** (v0.1.13):
+
+![Task list overlay](docs/cron-list.png?v=0.1.13)
 
 **Full-screen details** (edit form + execution log, close top-right):
 
-![Task details](docs/cron-detail.png)
+![Task details](docs/cron-detail.png?v=0.1.13)
 
 ## Installation
 

@@ -29,15 +29,26 @@ Un panel de tareas programadas para la GUI web de DSH: se sitúa entre el select
   - Mayor contraste y adaptación de variables de color en temas claros y oscuros, evitando texto invisible.
 - Tema claro / oscuro siguiendo la GUI web de DSH
 
+
+## Estado colapsado del panel lateral (nuevo en v0.1.13)
+
+Cuando el usuario colapsa la barra lateral de workbench, el panel completo se sustituye por un **botón de entrada 36×36 adaptable al tema** (en la parte inferior de la barra, justo encima de Settings). Al hacer clic se abre un **overlay a pantalla completa con la lista de tareas**:
+
+- Cabecera con número total, botón '+ Nueva' y botón cerrar
+- Tareas agrupadas en  y , cada fila con punto de estado (🟢 ok / 🔴 err / ⚪ none)
+- Clic en cualquier fila abre el  para editar;  para cerrar
+- Misma fuente de datos (parseo de  del backend) que en estado expandido
+- Botón adaptable al tema (claro: fondo gris muy tenue; oscuro: blanco semitransparente)
+
 ## Capturas de pantalla
 
 **Panel lateral** (secciones DSH / sistema + añadir + contraer):
 
-![Panel de tareas programadas](docs/cron-panel.png)
+![Panel de tareas programadas](docs/cron-panel.png?v=0.1.13)
 
 **Detalles a pantalla completa** (formulario de edición + registro de ejecución, cerrar arriba a la derecha):
 
-![Detalles de la tarea](docs/cron-detail.png)
+![Detalles de la tarea](docs/cron-detail.png?v=0.1.13)
 
 ## Instalación
 

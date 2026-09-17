@@ -8,7 +8,8 @@
     "Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; }
   body[data-view="panel"] #view-panel { display:block; }
   body[data-view="detail"] #view-detail { display:block; }
-  #view-panel, #view-detail { display:none; }
+  body[data-view="overlay"] #view-overlay { display:block; }
+  #view-panel, #view-detail, #view-overlay { display:none; }
 
   /* ===== 侧边栏模拟（工作区 → 定时任务面板 → 设置） ===== */
   .rail { width:230px; background:#f6f8fa; border-right:1px solid rgba(128,128,128,0.25);
@@ -38,6 +39,55 @@
   .dsh-cron-hint b { color:var(--cp-fg); }
   .rail .settings { margin-top:auto; padding:10px 12px; font-size:12px; color:#6e7781;
     border-top:1px solid rgba(128,128,128,0.25); }
+
+  /* ===== 收起态：rail 入口按钮 + 任务列表弹窗（虚构数据） ===== */
+  .rail-collapsed { width:56px; background:#f6f8fa; border-right:1px solid rgba(128,128,128,0.25);
+    display:flex; flex-direction:column; align-items:center; min-height:520px; padding:10px 0; }
+  .rail-collapsed .spacer { flex:1; }
+  .dsh-cron-rail-btn { position:relative; border:1px solid rgba(15,23,42,0.12);
+    background:rgba(15,23,42,0.05); color:#24292f; width:36px; height:36px; border-radius:8px;
+    display:flex; align-items:center; justify-content:center; }
+  .dsh-cron-rail-badge { position:absolute; top:-3px; right:-3px; min-width:14px; height:14px;
+    border-radius:7px; background:#ef4444; color:#fff; font-size:9px; font-weight:700;
+    display:flex; align-items:center; justify-content:center; padding:0 3px; box-sizing:border-box;
+    border:2px solid #ffffff; }
+  .dsh-cron-rail-settings { width:36px; height:36px; display:flex; align-items:center;
+    justify-content:center; color:#24292f; }
+
+  .dsh-cron-list-overlay { position:absolute; inset:0; background:rgba(0,0,0,0.45);
+    display:flex; align-items:center; justify-content:center; }
+  .dsh-cron-list { width:640px; max-height:520px; display:flex; flex-direction:column; overflow:hidden;
+    background:#ffffff; border:1px solid rgba(128,128,128,0.2); border-radius:14px;
+    box-shadow:0 20px 48px rgba(0,0,0,0.25); --cp-fg:#0f172a; --cp-muted:#64748b;
+    --cp-border:#e2e8f0; --cp-accent:#2563eb; --cp-danger:#ef4444; --cp-row-hover:rgba(15,23,42,0.05); }
+  .dsh-cron-list * { box-sizing:border-box; }
+  .dsh-cron-list-head { display:flex; align-items:center; gap:8px; padding:14px 18px;
+    border-bottom:1px solid var(--cp-border); }
+  .dsh-cron-list-head .title { flex:1; font-weight:600; font-size:15px; color:var(--cp-fg); }
+  .dsh-cron-list-head .count { font-size:12px; color:var(--cp-muted); }
+  .dsh-cron-list-actions { display:flex; align-items:center; gap:6px; }
+  .dsh-cron-list-btn { border:1px solid var(--cp-border); background:transparent; color:var(--cp-fg);
+    border-radius:8px; padding:5px 12px; font-size:12px; display:inline-flex; align-items:center; gap:5px; }
+  .dsh-cron-list-btn.primary { border-color:var(--cp-accent); background:var(--cp-accent); color:#fff; }
+  .dsh-cron-list-close { color:var(--cp-muted); width:28px; height:28px; display:flex;
+    align-items:center; justify-content:center; }
+  .dsh-cron-list-body { overflow:auto; padding:6px 0; }
+  .dsh-cron-list-section { padding:12px 18px 4px; color:var(--cp-muted); font-size:11px;
+    font-weight:600; text-transform:uppercase; letter-spacing:.4px; }
+  .dsh-cron-list-row { display:flex; align-items:center; gap:10px; padding:8px 18px;
+    font-size:13px; color:var(--cp-fg); margin:1px 8px; border-radius:6px; }
+  .dsh-cron-list-row.off { opacity:0.55; }
+  .dsh-cron-list-dot { width:8px; height:8px; border-radius:50%; flex:none; }
+  .dsh-cron-list-dot.ok { background:#16a34a; }
+  .dsh-cron-list-dot.err { background:#ef4444; }
+  .dsh-cron-list-dot.none { background:var(--cp-muted); opacity:0.4; }
+  .dsh-cron-list-expr { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
+    color:var(--cp-accent); white-space:nowrap; flex:none; min-width:90px; }
+  .dsh-cron-list-cmd { flex:1; min-width:0; white-space:nowrap; overflow:hidden;
+    text-overflow:ellipsis; color:var(--cp-fg); }
+  .dsh-cron-list-del { color:var(--cp-danger); font-size:13px; flex:none; }
+  .dsh-cron-list-foot { padding:10px 18px; border-top:1px solid var(--cp-border); font-size:11px;
+    color:var(--cp-muted); text-align:center; }
 
   /* ===== 全屏详情覆盖层 ===== */
   .overlay { position:relative; width:640px; height:430px; background:rgba(0,0,0,0.45);
@@ -165,6 +215,86 @@
         <span class="dsh-cron-btn danger">删除</span>
         <span class="dsh-cron-btn">取消</span>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= 收起态：rail 按钮 + 任务列表弹窗（数据全部虚构） ================= -->
+<div id="view-overlay" style="display:flex; min-height:520px; position:relative;">
+  <div class="rail-collapsed">
+    <div class="spacer"></div>
+    <span class="dsh-cron-rail-btn" title="定时任务">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"
+        stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="8" cy="8" r="5.6" /><path d="M8 4.8V8l2.4 1.6" />
+      </svg>
+      <span class="dsh-cron-rail-badge">6</span>
+    </span>
+    <span class="dsh-cron-rail-settings">
+      <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor"
+        stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <circle cx="8" cy="8" r="2.2" />
+        <path d="M8 1.8l1 1.6 1.9-.3.6 1.9 1.7 1-.8 1.7.8 1.7-1.7 1-.6 1.9-1.9-.3-1 1.6-1-1.6-1.9.3-.6-1.9-1.7-1 .8-1.7-.8-1.7 1.7-1 .6-1.9 1.9.3z" />
+      </svg>
+    </span>
+  </div>
+
+  <div class="dsh-cron-list-overlay">
+    <div class="dsh-cron-list">
+      <div class="dsh-cron-list-head">
+        <span class="title">定时任务</span>
+        <span class="count">6</span>
+        <div class="dsh-cron-list-actions">
+          <span class="dsh-cron-list-btn primary">
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor"
+              stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+            新增
+          </span>
+          <span class="dsh-cron-list-close">
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor"
+              stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+          </span>
+        </div>
+      </div>
+
+      <div class="dsh-cron-list-body">
+        <div class="dsh-cron-list-section">DSH 任务</div>
+        <div class="dsh-cron-list-row">
+          <span class="dsh-cron-list-dot ok"></span>
+          <span class="dsh-cron-list-expr">0 9 * * 1-5</span>
+          <span class="dsh-cron-list-cmd">/opt/example/bin/daily-report.sh</span>
+        </div>
+        <div class="dsh-cron-list-row">
+          <span class="dsh-cron-list-dot ok"></span>
+          <span class="dsh-cron-list-expr">30 18 * * 5</span>
+          <span class="dsh-cron-list-cmd">/opt/example/bin/weekly-summary.sh</span>
+        </div>
+        <div class="dsh-cron-list-row off">
+          <span class="dsh-cron-list-dot none"></span>
+          <span class="dsh-cron-list-expr">0 14 * * 3</span>
+          <span class="dsh-cron-list-cmd">dsh --profile headless "生成季度报表草稿"</span>
+          <span class="dsh-cron-list-del">✕</span>
+        </div>
+
+        <div class="dsh-cron-list-section">系统任务</div>
+        <div class="dsh-cron-list-row">
+          <span class="dsh-cron-list-dot ok"></span>
+          <span class="dsh-cron-list-expr">0 2 * * *</span>
+          <span class="dsh-cron-list-cmd">cd /srv/example && ./scripts/backup.sh</span>
+        </div>
+        <div class="dsh-cron-list-row">
+          <span class="dsh-cron-list-dot ok"></span>
+          <span class="dsh-cron-list-expr">*/30 * * * *</span>
+          <span class="dsh-cron-list-cmd">/usr/local/bin/cleanup-tmp.sh</span>
+        </div>
+        <div class="dsh-cron-list-row">
+          <span class="dsh-cron-list-dot err"></span>
+          <span class="dsh-cron-list-expr">15 3 * * 0</span>
+          <span class="dsh-cron-list-cmd">/usr/local/bin/reindex-search.sh</span>
+        </div>
+      </div>
+
+      <div class="dsh-cron-list-foot">点击任务可编辑 · 右上角可新建 · 按 Esc 关闭</div>
     </div>
   </div>
 </div>
